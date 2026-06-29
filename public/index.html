@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Níveis dos Rios — RS</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #16213e;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+
+    header h1 { font-size: 1rem; font-weight: 600; color: #e0e0e0; }
+    header .subtitle { font-size: 0.75rem; color: #8899aa; }
+
+    #atualizado {
+      margin-left: auto;
+      font-size: 0.7rem;
+      color: #8899aa;
+      white-space: nowrap;
+    }
+
+    /* ── layout principal ── */
+    #app {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── painel lateral (desktop) ── */
+    #painel {
+      width: 280px;
+      flex-shrink: 0;
+      background: #16213e;
+      border-right: 1px solid #0f3460;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #painel-header {
+      padding: 10px 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #8899aa;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+
+    #lista-estacoes {
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .item-estacao {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #0f3460;
+      transition: background 0.15s;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .item-estacao:hover { background: #0f3460; }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .item-info { flex: 1; min-width: 0; }
+    .item-nome { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item-sub { font-size: 0.72rem; color: #8899aa; margin-top: 1px; }
+    .item-nivel { font-size: 0.85rem; font-weight: 600; flex-shrink: 0; }
+
+    .item-estacao .seta {
+      font-size: 0.7rem;
+      color: #8899aa;
+      flex-shrink: 0;
+    }
+
+    /* ── mapa ── */
+    #map {
+      flex: 1;
+      z-index: 0;
+    }
+
+    /* ── popup leaflet ── */
+    .popup-estacao h3 { font-size: 0.9rem; margin-bottom: 4px; }
+    .popup-estacao .popup-rio { font-size: 0.75rem; color: #666; margin-bottom: 8px; }
+    .popup-estacao table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+    .popup-estacao td { padding: 2px 4px; }
+    .popup-estacao td:first-child { color: #666; }
+    .popup-estacao td:last-child { font-weight: 500; }
+    .popup-estacao .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #fff;
+      margin-top: 6px;
+    }
+    .popup-estacao .btn-detalhe {
+      display: block;
+      margin-top: 8px;
+      text-align: center;
+      background: #0f3460;
+      color: #fff;
+      padding: 5px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .popup-estacao .btn-detalhe:hover { background: #1a4a80; }
+
+    /* ── rodapé ── */
+    footer {
+      background: #16213e;
+      border-top: 1px solid #0f3460;
+      padding: 6px 12px;
+      font-size: 0.68rem;
+      color: #8899aa;
+      text-align: center;
+      flex-shrink: 0;
+      line-height: 1.5;
+    }
+
+    footer a { color: #6699cc; }
+
+    /* ── badge status ── */
+    .status-normal     { background: #2d8a2d; }
+    .status-atencao    { background: #c8971a; }
+    .status-alerta     { background: #cc5500; }
+    .status-inundacao  { background: #c0291d; }
+    .status-sem_dado   { background: #666; }
+
+    .dot-normal     { background: #3eb83e; }
+    .dot-atencao    { background: #f5b82e; }
+    .dot-alerta     { background: #e8700a; }
+    .dot-inundacao  { background: #e03428; }
+    .dot-sem_dado   { background: #888; }
+
+    /* ── mobile: painel na parte inferior ── */
+    @media (max-width: 640px) {
+      #app { flex-direction: column; }
+
+      #painel {
+        width: 100%;
+        height: 220px;
+        border-right: none;
+        border-top: 1px solid #0f3460;
+        order: 2;
+      }
+
+      #map { order: 1; flex: 1; }
+    }
+
+    /* ── spinner ── */
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(22, 33, 62, 0.9);
+      padding: 16px 24px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Níveis dos Rios — RS</h1>
+    <div class="subtitle">Bacia do Guaíba · Taquari · Sinos</div>
+  </div>
+  <div id="atualizado">carregando…</div>
+</header>
+
+<div id="app">
+  <div id="painel">
+    <div id="painel-header">Estações</div>
+    <div id="lista-estacoes">
+      <div style="padding:16px; color:#8899aa; font-size:0.8rem;">Carregando…</div>
+    </div>
+  </div>
+  <div id="map">
+    <div id="loading">Carregando dados…</div>
+  </div>
+</div>
+
+<footer>
+  Dados da <a href="https://www.ana.gov.br" target="_blank">ANA</a> /
+  <a href="https://sgb.gov.br/sace" target="_blank">SGB-CPRM/SACE</a>.
+  Pode haver falhas ou atrasos. Para alertas oficiais, consulte a
+  <a href="https://defesacivil.rs.gov.br" target="_blank">Defesa Civil do RS</a> e o
+  <a href="https://sgb.gov.br/sace/taquari" target="_blank">SGB/SACE</a>.
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const STATUS_LABEL = {
+  normal:    'Normal',
+  atencao:   'Atenção',
+  alerta:    'Alerta',
+  inundacao: 'Inundação',
+  sem_dado:  'Sem dado',
+};
+
+const MARKER_COLORS = {
+  normal:    '#3eb83e',
+  atencao:   '#f5b82e',
+  alerta:    '#e8700a',
+  inundacao: '#e03428',
+  sem_dado:  '#888888',
+};
+
+function criarIcone(status) {
+  const cor = MARKER_COLORS[status] || MARKER_COLORS.sem_dado;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+    <path d="M14 0C6.27 0 0 6.27 0 14c0 9.63 14 22 14 22S28 23.63 28 14C28 6.27 21.73 0 14 0z"
+      fill="${cor}" stroke="#fff" stroke-width="1.5"/>
+    <circle cx="14" cy="14" r="6" fill="#fff" fill-opacity="0.4"/>
+  </svg>`;
+  return L.divIcon({
+    className: '',
+    html: svg,
+    iconSize: [28, 36],
+    iconAnchor: [14, 36],
+    popupAnchor: [0, -36],
+  });
+}
+
+function formatarNivel(nivel_m) {
+  if (nivel_m === null || nivel_m === undefined) return '—';
+  return parseFloat(nivel_m).toFixed(2) + ' m';
+}
+
+function formatarData(medido_em) {
+  if (!medido_em) return '—';
+  return new Date(medido_em).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function popupHTML(e) {
+  const badgeClass = `badge status-${e.status}`;
+  return `
+    <div class="popup-estacao">
+      <h3>${e.nome}</h3>
+      <div class="popup-rio">${e.rio || ''} · ${e.municipio || ''}</div>
+      <table>
+        <tr><td>Nível atual</td><td>${formatarNivel(e.nivel_m)}</td></tr>
+        <tr><td>Medido em</td><td>${formatarData(e.medido_em)}</td></tr>
+        ${e.cota_atencao  ? `<tr><td>Cota atenção</td><td>${parseFloat(e.cota_atencao).toFixed(2)} m</td></tr>` : ''}
+        ${e.cota_alerta   ? `<tr><td>Cota alerta</td><td>${parseFloat(e.cota_alerta).toFixed(2)} m</td></tr>` : ''}
+        ${e.cota_inundacao ? `<tr><td>Cota inundação</td><td>${parseFloat(e.cota_inundacao).toFixed(2)} m</td></tr>` : ''}
+      </table>
+      <span class="${badgeClass}">${STATUS_LABEL[e.status] || e.status}</span>
+      <a href="estacao.html?codigo=${e.codigo}" class="btn-detalhe">Ver histórico 72h</a>
+    </div>`;
+}
+
+// ── inicializar mapa ──
+const map = L.map('map', { zoomControl: true }).setView([-29.5, -51.8], 8);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 18,
+}).addTo(map);
+
+// ── carregar dados ──
+const marcadores = {};
+
+async function carregarEstacoes() {
+  try {
+    const resp = await fetch('/api/estacoes');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const estacoes = await resp.json();
+
+    document.getElementById('loading')?.remove();
+
+    const lista = document.getElementById('lista-estacoes');
+    lista.innerHTML = '';
+
+    estacoes.forEach(e => {
+      // marcador no mapa
+      const marker = L.marker([e.latitude, e.longitude], { icon: criarIcone(e.status) });
+      marker.bindPopup(popupHTML(e), { maxWidth: 240 });
+      marker.addTo(map);
+      marcadores[e.codigo] = marker;
+
+      // item na lista lateral
+      const item = document.createElement('a');
+      item.className = 'item-estacao';
+      item.href = `estacao.html?codigo=${e.codigo}`;
+      item.innerHTML = `
+        <div class="dot dot-${e.status}"></div>
+        <div class="item-info">
+          <div class="item-nome">${e.nome}</div>
+          <div class="item-sub">${e.rio || ''} · ${e.municipio || ''}</div>
+        </div>
+        <div class="item-nivel">${formatarNivel(e.nivel_m)}</div>
+        <div class="seta">›</div>`;
+
+      // clicar na lista centraliza o mapa e abre o popup
+      item.addEventListener('click', ev => {
+        ev.preventDefault();
+        map.setView([e.latitude, e.longitude], 12, { animate: true });
+        marcadores[e.codigo].openPopup();
+      });
+
+      lista.appendChild(item);
+    });
+
+    // atualiza timestamp
+    const agora = new Date().toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+    document.getElementById('atualizado').textContent = `Atualizado ${agora}`;
+
+  } catch (err) {
+    document.getElementById('loading')?.remove();
+    document.getElementById('lista-estacoes').innerHTML =
+      `<div style="padding:16px;color:#e03428;">Erro ao carregar dados.<br>${err.message}</div>`;
+    console.error(err);
+  }
+}
+
+carregarEstacoes();
+</script>
+</body>
+</html>

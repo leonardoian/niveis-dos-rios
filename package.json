@@ -1,0 +1,10 @@
+{
+  "name": "niveis-dos-rios",
+  "version": "1.0.0",
+  "description": "Monitoramento de níveis dos rios do RS — bacia do Guaíba/Taquari",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  }
+}

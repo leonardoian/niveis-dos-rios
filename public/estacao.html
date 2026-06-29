@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Detalhe da Estação — Níveis dos Rios RS</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #16213e;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    header a {
+      color: #6699cc;
+      text-decoration: none;
+      font-size: 0.85rem;
+    }
+
+    header a:hover { text-decoration: underline; }
+
+    header h1 { font-size: 1rem; font-weight: 600; }
+    header .sub { font-size: 0.75rem; color: #8899aa; }
+
+    main {
+      flex: 1;
+      padding: 20px 16px;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ── cards de status ── */
+    #cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .card-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #8899aa;
+      margin-bottom: 4px;
+    }
+
+    .card-valor {
+      font-size: 1.4rem;
+      font-weight: 700;
+    }
+
+    .card-sub {
+      font-size: 0.72rem;
+      color: #8899aa;
+      margin-top: 2px;
+    }
+
+    /* ── badge ── */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .status-normal     { background: #2d8a2d; }
+    .status-atencao    { background: #c8971a; }
+    .status-alerta     { background: #cc5500; }
+    .status-inundacao  { background: #c0291d; }
+    .status-sem_dado   { background: #555; }
+
+    /* ── gráfico ── */
+    #grafico-container {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+
+    #grafico-container h2 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #c0d0e0;
+    }
+
+    #grafico-wrapper {
+      position: relative;
+      height: 300px;
+    }
+
+    /* ── cotas legend ── */
+    #legenda-cotas {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      font-size: 0.72rem;
+      color: #8899aa;
+    }
+
+    .legenda-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legenda-linha {
+      width: 24px;
+      height: 2px;
+      border-top: 2px dashed;
+    }
+
+    /* ── rodapé ── */
+    footer {
+      background: #16213e;
+      border-top: 1px solid #0f3460;
+      padding: 6px 12px;
+      font-size: 0.68rem;
+      color: #8899aa;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    footer a { color: #6699cc; }
+
+    /* ── loading / erro ── */
+    #msg {
+      padding: 40px;
+      text-align: center;
+      color: #8899aa;
+    }
+
+    @media (max-width: 480px) {
+      #grafico-wrapper { height: 220px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <a href="index.html">← Mapa</a>
+  </div>
+  <div style="flex:1">
+    <div id="h-nome" class="card-label">Carregando…</div>
+    <h1 id="h-titulo" style="font-size:1rem"> </h1>
+    <div id="h-sub" class="sub"> </div>
+  </div>
+</header>
+
+<main>
+  <div id="cards"></div>
+
+  <div id="grafico-container" style="display:none">
+    <h2>Nível nas últimas 72 horas</h2>
+    <div id="grafico-wrapper">
+      <canvas id="grafico"></canvas>
+    </div>
+    <div id="legenda-cotas"></div>
+  </div>
+
+  <div id="msg">Carregando dados…</div>
+</main>
+
+<footer>
+  Dados da <a href="https://www.ana.gov.br" target="_blank">ANA</a> /
+  <a href="https://sgb.gov.br/sace" target="_blank">SGB-CPRM/SACE</a>.
+  Pode haver falhas ou atrasos. Para alertas oficiais, consulte a
+  <a href="https://defesacivil.rs.gov.br" target="_blank">Defesa Civil do RS</a> e o
+  <a href="https://sgb.gov.br/sace/taquari" target="_blank">SGB/SACE</a>.
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+const STATUS_LABEL = {
+  normal:    'Normal',
+  atencao:   'Atenção',
+  alerta:    'Alerta',
+  inundacao: 'Inundação',
+  sem_dado:  'Sem dado',
+};
+
+function getParam(nome) {
+  return new URLSearchParams(window.location.search).get(nome);
+}
+
+function formatarData(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function formatarNivel(v) {
+  if (v === null || v === undefined) return '—';
+  return parseFloat(v).toFixed(2) + ' m';
+}
+
+function msg(texto, erro = false) {
+  const el = document.getElementById('msg');
+  el.style.display = '';
+  el.style.color = erro ? '#e03428' : '#8899aa';
+  el.textContent = texto;
+}
+
+async function carregar() {
+  const codigo = getParam('codigo');
+  if (!codigo || !/^\d+$/.test(codigo)) {
+    msg('Código de estação inválido ou ausente.', true);
+    return;
+  }
+
+  try {
+    // busca estação e histórico em paralelo
+    const [respEstacoes, respHistorico] = await Promise.all([
+      fetch('/api/estacoes'),
+      fetch(`/api/historico?estacao=${codigo}`),
+    ]);
+
+    if (!respEstacoes.ok) throw new Error(`/api/estacoes: HTTP ${respEstacoes.status}`);
+    if (!respHistorico.ok) throw new Error(`/api/historico: HTTP ${respHistorico.status}`);
+
+    const estacoes = await respEstacoes.json();
+    const historico = await respHistorico.json();
+
+    const estacao = estacoes.find(e => String(e.codigo) === String(codigo));
+    if (!estacao) {
+      msg('Estação não encontrada.', true);
+      return;
+    }
+
+    renderHeader(estacao);
+    renderCards(estacao);
+    renderGrafico(estacao, historico);
+    document.getElementById('msg').style.display = 'none';
+
+  } catch (err) {
+    msg(`Erro ao carregar dados: ${err.message}`, true);
+    console.error(err);
+  }
+}
+
+function renderHeader(e) {
+  document.title = `${e.nome} — Níveis dos Rios RS`;
+  document.getElementById('h-nome').textContent = `Estação ${e.codigo}`;
+  document.getElementById('h-titulo').textContent = e.nome;
+  document.getElementById('h-sub').textContent = `${e.rio || ''} · ${e.municipio || ''}`;
+}
+
+function renderCards(e) {
+  const cont = document.getElementById('cards');
+  const nivel = formatarNivel(e.nivel_m);
+  const statusLabel = STATUS_LABEL[e.status] || e.status;
+  const statusClass = `status-${e.status}`;
+
+  cont.innerHTML = `
+    <div class="card">
+      <div class="card-label">Nível atual</div>
+      <div class="card-valor">${nivel}</div>
+      <div class="card-sub">medido ${formatarData(e.medido_em)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Status</div>
+      <div style="margin-top:6px"><span class="badge ${statusClass}">${statusLabel}</span></div>
+    </div>
+    ${e.cota_atencao ? `
+    <div class="card">
+      <div class="card-label">Cota atenção</div>
+      <div class="card-valor" style="color:#f5b82e">${parseFloat(e.cota_atencao).toFixed(2)} m</div>
+    </div>` : ''}
+    ${e.cota_alerta ? `
+    <div class="card">
+      <div class="card-label">Cota alerta</div>
+      <div class="card-valor" style="color:#e8700a">${parseFloat(e.cota_alerta).toFixed(2)} m</div>
+    </div>` : ''}
+    ${e.cota_inundacao ? `
+    <div class="card">
+      <div class="card-label">Cota inundação</div>
+      <div class="card-valor" style="color:#e03428">${parseFloat(e.cota_inundacao).toFixed(2)} m</div>
+    </div>` : ''}
+  `;
+}
+
+function renderGrafico(estacao, historico) {
+  const container = document.getElementById('grafico-container');
+
+  if (!historico || historico.length === 0) {
+    container.style.display = 'block';
+    container.querySelector('canvas').replaceWith(
+      Object.assign(document.createElement('div'), {
+        style: 'padding:40px;text-align:center;color:#8899aa',
+        textContent: 'Sem leituras nas últimas 72 horas.',
+      })
+    );
+    return;
+  }
+
+  container.style.display = 'block';
+
+  const labels = historico.map(l =>
+    new Date(l.medido_em).toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    })
+  );
+  const niveis = historico.map(l => l.nivel_m !== null ? parseFloat(l.nivel_m) : null);
+
+  const datasets = [
+    {
+      label: 'Nível (m)',
+      data: niveis,
+      borderColor: '#4d9de0',
+      backgroundColor: 'rgba(77, 157, 224, 0.12)',
+      fill: true,
+      tension: 0.3,
+      pointRadius: historico.length > 48 ? 0 : 3,
+      pointHoverRadius: 5,
+    },
+  ];
+
+  // linhas de cota como datasets horizontais
+  const cotaConfig = [
+    { valor: estacao.cota_atencao,  label: 'Atenção',   cor: '#f5b82e', dash: [8, 4] },
+    { valor: estacao.cota_alerta,   label: 'Alerta',    cor: '#e8700a', dash: [8, 4] },
+    { valor: estacao.cota_inundacao,label: 'Inundação', cor: '#e03428', dash: [8, 4] },
+  ];
+
+  const legendaItems = [];
+
+  cotaConfig.forEach(({ valor, label, cor, dash }) => {
+    if (!valor) return;
+    const v = parseFloat(valor);
+    datasets.push({
+      label,
+      data: labels.map(() => v),
+      borderColor: cor,
+      borderWidth: 1.5,
+      borderDash: dash,
+      pointRadius: 0,
+      fill: false,
+      tension: 0,
+    });
+    legendaItems.push({ label: `${label} (${v.toFixed(2)} m)`, cor, dash });
+  });
+
+  const ctx = document.getElementById('grafico').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: false,
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2) ?? '—'} m`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#8899aa',
+            maxTicksLimit: 8,
+            maxRotation: 30,
+          },
+          grid: { color: '#1e2e4a' },
+        },
+        y: {
+          ticks: {
+            color: '#8899aa',
+            callback: v => v.toFixed(1) + ' m',
+          },
+          grid: { color: '#1e2e4a' },
+        },
+      },
+    },
+  });
+
+  // legenda manual das cotas
+  if (legendaItems.length > 0) {
+    const legenda = document.getElementById('legenda-cotas');
+    legenda.innerHTML = legendaItems.map(i => `
+      <div class="legenda-item">
+        <div class="legenda-linha" style="border-color:${i.cor}"></div>
+        <span>${i.label}</span>
+      </div>`).join('');
+  }
+}
+
+carregar();
+</script>
+</body>
+</html>
