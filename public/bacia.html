@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>Mapa da bacia — Níveis dos Rios</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root {
     --bg: #f5f6f8;
@@ -58,6 +59,15 @@
   .pill-cidade { font-size: 13px; font-weight: 600; }
   .pill-nivel { font-size: 15px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .pill-tag { font-size: 10px; color: var(--txt3); text-transform: uppercase; letter-spacing: .3px; margin-top: 2px; }
+
+  .mapa-titulo { font-size: 14px; font-weight: 600; color: var(--txt2); margin: 24px 0 10px; }
+  #mapa {
+    height: 440px; border-radius: 12px; border: 1px solid var(--linha);
+    background: var(--card);
+  }
+  .popup-cidade { font-weight: 600; font-size: 13px; }
+  .popup-rio { font-size: 12px; color: var(--txt2); margin-bottom: 4px; }
+  .popup-nivel { font-size: 13px; }
 </style>
 </head>
 <body>
@@ -69,6 +79,9 @@
   </header>
 
   <div id="aviso"></div>
+
+  <p class="mapa-titulo">Localização das estações no mapa do RS</p>
+  <div id="mapa"></div>
 
   <div class="bacia">
     <section class="tier">
@@ -112,8 +125,29 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alagado: 'Alagado', sem_dado: 'Sem dado' };
+const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alagado: '#e24b4a', sem_dado: '#c9ccd2' };
+
+// Coordenadas da sede de cada cidade (fato de geografia, não vem do banco).
+// Fonte: Wikipédia (infobox de cada município).
+const COORDS = {
+  portoalegre:       [-30.03278, -51.23000],
+  saoleopoldo:       [-29.76000, -51.14694],
+  lajeado:           [-29.46694, -51.96083],
+  bomretirodosul:    [-29.60889, -51.94278],
+  cachoeiradosul:    [-30.03890, -52.89390],
+  donafrancisca:     [-29.62194, -53.35694],
+  encantado:         [-29.23583, -51.87000],
+  feliz:             [-29.45083, -51.30583],
+  gravatai:          [-29.94389, -50.99194],
+  mucum:             [-29.16700, -51.88300],
+  riopardo:          [-29.98972, -52.37806],
+  saosebastiaodocai: [-29.58694, -51.37583],
+  taquara:           [-29.65056, -50.78056],
+  rocasales:         [-29.28300, -51.86700],
+};
 
 // Hierarquia da bacia (fato de geografia, não vem do banco): qual rio
 // deságua em qual, e em que grupo cada estação monitorada se encaixa.
@@ -143,6 +177,44 @@ function pill(e) {
   </div>`;
 }
 
+// Centro aproximado do Rio Grande do Sul, zoom que enquadra a região das
+// 14 estações (todas ficam na metade norte/central do estado).
+const mapa = L.map('mapa').setView([-29.7, -51.8], 8);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 18,
+}).addTo(mapa);
+
+const marcadores = new Map();
+
+function popupHtml(e) {
+  const nivel = e.nivel === null ? '—' : e.nivel.toFixed(2) + ' m';
+  return `<div class="popup-cidade">${e.cidade}/${e.uf}</div>
+    <div class="popup-rio">${e.rio}</div>
+    <div class="popup-nivel">${nivel} — ${ROTULOS[e.status]}</div>`;
+}
+
+function atualizarMapa(estacoes) {
+  for (const e of estacoes) {
+    const coord = COORDS[e.slug];
+    if (!coord) continue;
+
+    const cor = CORES[e.status];
+    let marcador = marcadores.get(e.slug);
+
+    if (!marcador) {
+      marcador = L.circleMarker(coord, {
+        radius: 9, color: '#fff', weight: 2, fillColor: cor, fillOpacity: 0.9,
+      }).addTo(mapa);
+      marcadores.set(e.slug, marcador);
+    } else {
+      marcador.setStyle({ fillColor: cor });
+    }
+
+    marcador.bindPopup(popupHtml(e));
+  }
+}
+
 async function carregar() {
   try {
     const r = await fetch('/api/painel');
@@ -151,6 +223,8 @@ async function carregar() {
     document.getElementById('aviso').innerHTML = '';
 
     const porSlug = new Map(dados.estacoes.map((e) => [e.slug, e]));
+
+    atualizarMapa(dados.estacoes);
 
     for (const tier of TIERS) {
       const alvo = document.getElementById(tier.id);
