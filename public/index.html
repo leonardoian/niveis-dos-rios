@@ -201,9 +201,9 @@ function card(e) {
     const min = Math.min(...niveis);
     const max = Math.max(...niveis);
     spark = `<div class="spark-wrap"><canvas id="spark-${e.slug}"></canvas></div>
-      <div class="spark-legenda">mín ${min.toFixed(2)} · máx ${max.toFixed(2)} m (24h)</div>`;
+      <div class="spark-legenda">mín ${min.toFixed(2)} · máx ${max.toFixed(2)} m (últimas leituras)</div>`;
   } else {
-    spark = `<div class="spark-wrap vazio">Sem histórico suficiente (24h)</div>`;
+    spark = `<div class="spark-wrap vazio">Sem histórico suficiente</div>`;
   }
 
   return `<div class="card ${e.status}" data-slug="${e.slug}">

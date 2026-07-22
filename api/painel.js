@@ -38,13 +38,22 @@ export default async function handler(req, res) {
       ORDER BY e.ordem
     `;
 
-    // Série curta (24h) por estação, pra desenhar o mini-gráfico de tendência
-    // no card — não precisa de uma chamada por estação, uma query só resolve.
+    // Série curta por estação, pra desenhar o mini-gráfico de tendência no
+    // card — pega as últimas N leituras por contagem (não por janela de
+    // tempo), senão uma estação com poucas leituras recentes ou com um
+    // buraco no meio ficaria sem mini-gráfico mesmo tendo dado suficiente.
     const serieBruta = await sql`
       SELECT slug, nivel, medido_em
-      FROM leituras
-      WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
-        AND medido_em >= NOW() - INTERVAL '24 hours'
+      FROM (
+        SELECT
+          l.slug,
+          l.nivel,
+          l.medido_em,
+          ROW_NUMBER() OVER (PARTITION BY l.slug ORDER BY l.medido_em DESC) AS pos
+        FROM leituras l
+        WHERE l.slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
+      ) recentes
+      WHERE pos <= 12
       ORDER BY slug, medido_em ASC
     `;
 
