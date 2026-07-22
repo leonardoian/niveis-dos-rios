@@ -68,6 +68,12 @@
   .popup-cidade { font-weight: 600; font-size: 13px; }
   .popup-rio { font-size: 12px; color: var(--txt2); margin-bottom: 4px; }
   .popup-nivel { font-size: 13px; }
+
+  .rodape-fontes { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--linha); font-size: 12px; color: var(--txt3); }
+  .rodape-fontes p { margin-top: 4px; }
+  .rodape-fontes p:first-child { margin-top: 0; }
+  .rodape-fontes b { color: var(--txt2); }
+  .rodape-fontes a { color: var(--txt2); }
 </style>
 </head>
 <body>
@@ -123,6 +129,13 @@
     <div class="conector">↓</div>
     <p class="foz">Lagoa dos Patos → Oceano Atlântico</p>
   </div>
+
+  <footer class="rodape-fontes">
+    <p><b>Não é sistema oficial de alerta.</b> Em emergência, acione a Defesa
+       Civil (199) ou os Bombeiros (193).</p>
+    <p>Dados via <a href="https://nivelguaiba.com.br" target="_blank" rel="noopener">nivelguaiba.com.br</a>,
+       que consome telemetria pública da SGB/CPRM e da ANA. Uso interno.</p>
+  </footer>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>

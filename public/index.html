@@ -67,6 +67,11 @@
   .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
   .meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 11px; color: var(--txt3); }
   .aviso { background: #fff6e5; border: 1px solid #f0d4a0; color: #6b4c15; padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+  .rodape-fontes { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--linha); font-size: 12px; color: var(--txt3); }
+  .rodape-fontes p { margin-top: 4px; }
+  .rodape-fontes p:first-child { margin-top: 0; }
+  .rodape-fontes b { color: var(--txt2); }
+  .rodape-fontes a { color: var(--txt2); }
 
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(22,24,29,.55);
@@ -125,6 +130,13 @@
   </div>
 
   <div class="grid" id="grid"></div>
+
+  <footer class="rodape-fontes">
+    <p><b>Não é sistema oficial de alerta.</b> Em emergência, acione a Defesa
+       Civil (199) ou os Bombeiros (193).</p>
+    <p>Dados via <a href="https://nivelguaiba.com.br" target="_blank" rel="noopener">nivelguaiba.com.br</a>,
+       que consome telemetria pública da SGB/CPRM e da ANA. Uso interno.</p>
+  </footer>
 </div>
 
 <div class="modal-overlay" id="modalOverlay" hidden>
