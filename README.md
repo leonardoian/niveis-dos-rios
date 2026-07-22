@@ -190,6 +190,11 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   não derruba a coleta de nível. Em rios largos como o Guaíba a grade de 5km
   do modelo pode não acertar o canal certo — os números saem baixos demais
   nesse caso, é limitação da fonte, não bug.
+- **Clima previsto** (`buscarClima` em `lib/previsao.js`) vem da API padrão do
+  Open-Meteo, mesma cadência e mesma linha de `previsoes` da vazão (dia +
+  temperatura máx/mín + chuva prevista + condição). As duas chamadas são
+  independentes (`Promise.allSettled`): se uma falhar, a outra ainda grava a
+  parte dela, por isso as colunas são anuláveis e o `INSERT` usa `COALESCE`.
 - **Frescor por leitura** (`frescor` em cada estação do `/api/painel`) marca
   `ao_vivo` (≤20 min) / `atrasado` (≤1h) / `obsoleto` (>1h) individualmente —
   mais granular que o `ultimaColeta` global, que só reflete a estação mais

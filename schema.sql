@@ -50,17 +50,29 @@ CREATE TABLE IF NOT EXISTS alertas (
 CREATE INDEX IF NOT EXISTS idx_alertas_slug_data
     ON alertas (slug, criado_em DESC);
 
--- Previsão de VAZÃO (m³/s, não nível em metros — ver nota em lib/previsao.js).
--- Atualizada no máximo 1x/dia por estação; ON CONFLICT reescreve o valor do
--- mesmo dia em vez de acumular.
+-- Previsão diária por estação — vazão (m³/s, não nível em metros — ver nota
+-- em lib/previsao.js) e clima (Open-Meteo, mesmo provedor). Colunas anuláveis
+-- porque vazão e clima vêm de duas chamadas independentes: se uma falhar, a
+-- outra ainda grava sua parte. Atualizada no máximo 1x/dia por estação.
 CREATE TABLE IF NOT EXISTS previsoes (
-    id          BIGSERIAL PRIMARY KEY,
-    slug        TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
-    dia         DATE NOT NULL,
-    vazao_m3s   NUMERIC(12,2) NOT NULL,
-    gerado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    id               BIGSERIAL PRIMARY KEY,
+    slug             TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
+    dia              DATE NOT NULL,
+    vazao_m3s        NUMERIC(12,2),
+    temp_max         NUMERIC(5,2),
+    temp_min         NUMERIC(5,2),
+    chuva_mm         NUMERIC(6,2),
+    condicao_codigo  INT,               -- WMO weather code (Open-Meteo)
+    gerado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT previsoes_unicas UNIQUE (slug, dia)
 );
+
+-- Idempotente: bancos que criaram a tabela antes destas colunas existirem.
+ALTER TABLE previsoes ALTER COLUMN vazao_m3s DROP NOT NULL;
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS temp_max NUMERIC(5,2);
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS temp_min NUMERIC(5,2);
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS condicao_codigo INT;
 
 CREATE INDEX IF NOT EXISTS idx_previsoes_slug_dia
     ON previsoes (slug, dia);

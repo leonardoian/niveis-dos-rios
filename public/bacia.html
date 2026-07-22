@@ -135,6 +135,8 @@
        Civil (199) ou os Bombeiros (193).</p>
     <p>Dados via <a href="https://nivelguaiba.com.br" target="_blank" rel="noopener">nivelguaiba.com.br</a>,
        que consome telemetria pública da SGB/CPRM e da ANA. Uso interno.</p>
+    <p>Vazão e clima previstos via <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener">Open-Meteo / GloFAS</a>
+       — modelo global por coordenada, não é telemetria oficial nem previsão de nível.</p>
   </footer>
 </div>
 
@@ -142,6 +144,22 @@
 <script>
 const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alagado: 'Alagado', sem_dado: 'Sem dado' };
 const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alagado: '#e24b4a', sem_dado: '#c9ccd2' };
+
+const CONDICOES = {
+  0: '☀️ Céu limpo', 1: '🌤 Poucas nuvens', 2: '⛅ Parcialmente nublado', 3: '☁️ Nublado',
+  45: '🌫 Neblina', 48: '🌫 Neblina',
+  51: '🌦 Garoa', 53: '🌦 Garoa', 55: '🌦 Garoa',
+  56: '🌧❄ Garoa congelante', 57: '🌧❄ Garoa congelante',
+  61: '🌧 Chuva', 63: '🌧 Chuva', 65: '🌧 Chuva forte',
+  66: '🌧❄ Chuva congelante', 67: '🌧❄ Chuva congelante',
+  71: '🌨 Neve', 73: '🌨 Neve', 75: '🌨 Neve forte', 77: '🌨 Neve',
+  80: '🌦 Pancadas de chuva', 81: '🌦 Pancadas de chuva', 82: '⛈ Pancadas fortes',
+  85: '🌨 Pancadas de neve', 86: '🌨 Pancadas de neve',
+  95: '⛈ Trovoada', 96: '⛈ Trovoada c/ granizo', 99: '⛈ Trovoada c/ granizo',
+};
+function condicaoTexto(codigo) {
+  return CONDICOES[codigo] || 'Condição desconhecida';
+}
 
 // Coordenadas da sede de cada cidade (fato de geografia, não vem do banco).
 // Fonte: Wikipédia (infobox de cada município).
@@ -202,9 +220,16 @@ const marcadores = new Map();
 
 function popupHtml(e) {
   const nivel = e.nivel === null ? '—' : e.nivel.toFixed(2) + ' m';
+  let clima = '';
+  if (e.climaHoje) {
+    const c = e.climaHoje;
+    const chuva = c.chuvaMm === null ? '—' : c.chuvaMm.toFixed(1) + 'mm';
+    clima = `<div class="popup-rio">${condicaoTexto(c.condicaoCodigo)} · ${Math.round(c.tempMax)}°/${Math.round(c.tempMin)}°C · ${chuva} hoje</div>`;
+  }
   return `<div class="popup-cidade">${e.cidade}/${e.uf}</div>
     <div class="popup-rio">${e.rio}</div>
-    <div class="popup-nivel">${nivel} — ${ROTULOS[e.status]}</div>`;
+    <div class="popup-nivel">${nivel} — ${ROTULOS[e.status]}</div>
+    ${clima}`;
 }
 
 function atualizarMapa(estacoes) {

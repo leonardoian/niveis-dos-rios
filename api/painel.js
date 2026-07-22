@@ -63,10 +63,10 @@ export default async function handler(req, res) {
       seriePorSlug.get(p.slug).push({ nivel: Number(p.nivel), medidoEm: p.medido_em });
     }
 
-    // Previsão de vazão (m³/s) dos próximos dias — dado à parte do nível,
-    // nunca comparado com cota_inundacao (ver lib/previsao.js).
+    // Previsão de vazão (m³/s, dado à parte do nível — ver lib/previsao.js) e
+    // clima dos próximos dias.
     const previsaoBruta = await sql`
-      SELECT slug, dia, vazao_m3s
+      SELECT slug, dia, vazao_m3s, temp_max, temp_min, chuva_mm, condicao_codigo
       FROM previsoes
       WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
         AND dia >= CURRENT_DATE
@@ -76,12 +76,22 @@ export default async function handler(req, res) {
     const previsaoPorSlug = new Map();
     for (const p of previsaoBruta) {
       if (!previsaoPorSlug.has(p.slug)) previsaoPorSlug.set(p.slug, []);
-      previsaoPorSlug.get(p.slug).push({ dia: p.dia, vazaoM3s: Number(p.vazao_m3s) });
+      previsaoPorSlug.get(p.slug).push({
+        dia: p.dia,
+        vazaoM3s: p.vazao_m3s === null ? null : Number(p.vazao_m3s),
+        tempMax: p.temp_max === null ? null : Number(p.temp_max),
+        tempMin: p.temp_min === null ? null : Number(p.temp_min),
+        chuvaMm: p.chuva_mm === null ? null : Number(p.chuva_mm),
+        condicaoCodigo: p.condicao_codigo,
+      });
     }
 
     const estacoes = linhas.map((r) => {
       const nivel = r.nivel_atual === null ? null : Number(r.nivel_atual);
       const cota = Number(r.cota_inundacao);
+      const previsao = previsaoPorSlug.get(r.slug) || [];
+      // Primeiro dia da previsão com dado de clima — normalmente hoje.
+      const climaHoje = previsao.find((p) => p.tempMax !== null) || null;
 
       // cm/h = (variação em metros × 100) / horas decorridas
       let velocidade = null;
@@ -107,7 +117,8 @@ export default async function handler(req, res) {
         margem: nivel === null ? null : Number((cota - nivel).toFixed(2)),
         status: classificar(nivel, cota),
         serieRecente: seriePorSlug.get(r.slug) || [],
-        previsao: previsaoPorSlug.get(r.slug) || [],
+        previsao,
+        climaHoje,
         frescor: calcularFrescor(r.medido_em),
       };
     });

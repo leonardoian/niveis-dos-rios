@@ -65,6 +65,7 @@
   .spark-wrap.vazio { display: flex; align-items: center; font-size: 11px; color: var(--txt3); }
   .spark-legenda { font-size: 11px; color: var(--txt3); text-align: right; margin-top: 1px; }
   .prev-titulo { font-size: 10px; color: var(--txt3); text-transform: uppercase; letter-spacing: .3px; margin-top: 10px; }
+  .clima { font-size: 12px; color: var(--txt2); margin-top: 4px; }
   .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
   .meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 11px; color: var(--txt3); }
   .frescor { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
@@ -142,6 +143,8 @@
        — modelo global por coordenada, não é telemetria oficial nem previsão de nível
        (a conversão de vazão pra metros exigiria a curva-chave de cada estação, que não temos).
        Em rios largos como o Guaíba a grade de 5km pode não acertar o canal certo.</p>
+    <p>Clima previsto via <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener">Open-Meteo</a>
+       — mesmo modelo global, não é uma medição.</p>
   </footer>
 </div>
 
@@ -177,6 +180,23 @@ const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alag
 // alto?"), mas as cores verde/amarelo/vermelho comunicam a mesma urgência.
 const FRESCOR_PARA_COR = { ao_vivo: 'normal', atrasado: 'atencao', obsoleto: 'alagado', sem_dado: 'sem_dado' };
 const FRESCOR_TITULO = { ao_vivo: 'Dado ao vivo', atrasado: 'Dado atrasado (20–60 min)', obsoleto: 'Dado obsoleto (mais de 1h)', sem_dado: 'Sem leitura' };
+
+// WMO weather code (Open-Meteo) -> texto/ícone em pt-BR.
+const CONDICOES = {
+  0: '☀️ Céu limpo', 1: '🌤 Poucas nuvens', 2: '⛅ Parcialmente nublado', 3: '☁️ Nublado',
+  45: '🌫 Neblina', 48: '🌫 Neblina',
+  51: '🌦 Garoa', 53: '🌦 Garoa', 55: '🌦 Garoa',
+  56: '🌧❄ Garoa congelante', 57: '🌧❄ Garoa congelante',
+  61: '🌧 Chuva', 63: '🌧 Chuva', 65: '🌧 Chuva forte',
+  66: '🌧❄ Chuva congelante', 67: '🌧❄ Chuva congelante',
+  71: '🌨 Neve', 73: '🌨 Neve', 75: '🌨 Neve forte', 77: '🌨 Neve',
+  80: '🌦 Pancadas de chuva', 81: '🌦 Pancadas de chuva', 82: '⛈ Pancadas fortes',
+  85: '🌨 Pancadas de neve', 86: '🌨 Pancadas de neve',
+  95: '⛈ Trovoada', 96: '⛈ Trovoada c/ granizo', 99: '⛈ Trovoada c/ granizo',
+};
+function condicaoTexto(codigo) {
+  return CONDICOES[codigo] || 'Condição desconhecida';
+}
 
 let dados = null;
 let timerColeta = null;
@@ -274,10 +294,14 @@ function card(e) {
     spark = `<div class="spark-wrap vazio">Sem histórico suficiente</div>`;
   }
 
-  const temPrevisao = Array.isArray(e.previsao) && e.previsao.length >= 2;
+  // vazao_m3s pode ser null em algum dia (a chamada de vazão daquele dia
+  // falhou mas a de clima não) — filtra antes de qualquer conta, senão
+  // Math.min/max trata null como 0 e o gráfico mente.
+  const pontosVazao = Array.isArray(e.previsao) ? e.previsao.filter((p) => p.vazaoM3s !== null) : [];
+  const temPrevisao = pontosVazao.length >= 2;
   let previsao;
   if (temPrevisao) {
-    const vazoes = e.previsao.map((p) => p.vazaoM3s);
+    const vazoes = pontosVazao.map((p) => p.vazaoM3s);
     const min = Math.min(...vazoes);
     const max = Math.max(...vazoes);
     previsao = `<p class="prev-titulo">Vazão prevista (7 dias)</p>
@@ -286,6 +310,13 @@ function card(e) {
   } else {
     previsao = `<p class="prev-titulo">Vazão prevista (7 dias)</p>
       <div class="spark-wrap vazio">Sem previsão disponível</div>`;
+  }
+
+  let clima = '';
+  if (e.climaHoje) {
+    const c = e.climaHoje;
+    const chuva = c.chuvaMm === null ? '—' : c.chuvaMm.toFixed(1) + 'mm';
+    clima = `<div class="clima">${condicaoTexto(c.condicaoCodigo)} · ${Math.round(c.tempMax)}°/${Math.round(c.tempMin)}°C · ${chuva} chuva hoje</div>`;
   }
 
   const corFrescor = CORES[FRESCOR_PARA_COR[e.frescor?.status] || 'sem_dado'];
@@ -299,6 +330,7 @@ function card(e) {
       </div>
       <span class="tag ${e.status}">${ROTULOS[e.status]}</span>
     </div>
+    ${clima}
     <p class="nivel">${nivel}<small> m</small></p>
     ${vel}
     ${spark}
@@ -381,16 +413,17 @@ function desenharPrevisoes(lista) {
   previsaoCharts.clear();
 
   for (const e of lista) {
-    if (!Array.isArray(e.previsao) || e.previsao.length < 2) continue;
+    const pontosVazao = Array.isArray(e.previsao) ? e.previsao.filter((p) => p.vazaoM3s !== null) : [];
+    if (pontosVazao.length < 2) continue;
     const canvas = document.getElementById('prev-' + e.slug);
     if (!canvas) continue;
 
     const chart = new Chart(canvas.getContext('2d'), {
       type: 'line',
       data: {
-        labels: e.previsao.map(() => ''),
+        labels: pontosVazao.map(() => ''),
         datasets: [{
-          data: e.previsao.map((p) => p.vazaoM3s),
+          data: pontosVazao.map((p) => p.vazaoM3s),
           borderColor: '#8b909c',
           borderDash: [4, 3],
           borderWidth: 1.5,
