@@ -64,8 +64,10 @@
   .spark-wrap { height: 32px; margin: 10px 0 2px; }
   .spark-wrap.vazio { display: flex; align-items: center; font-size: 11px; color: var(--txt3); }
   .spark-legenda { font-size: 11px; color: var(--txt3); text-align: right; margin-top: 1px; }
+  .prev-titulo { font-size: 10px; color: var(--txt3); text-transform: uppercase; letter-spacing: .3px; margin-top: 10px; }
   .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
   .meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 11px; color: var(--txt3); }
+  .frescor { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
   .aviso { background: #fff6e5; border: 1px solid #f0d4a0; color: #6b4c15; padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
   .rodape-fontes { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--linha); font-size: 12px; color: var(--txt3); }
   .rodape-fontes p { margin-top: 4px; }
@@ -136,6 +138,10 @@
        Civil (199) ou os Bombeiros (193).</p>
     <p>Dados via <a href="https://nivelguaiba.com.br" target="_blank" rel="noopener">nivelguaiba.com.br</a>,
        que consome telemetria pública da SGB/CPRM e da ANA. Uso interno.</p>
+    <p>Vazão prevista via <a href="https://open-meteo.com/en/docs/flood-api" target="_blank" rel="noopener">Open-Meteo / GloFAS</a>
+       — modelo global por coordenada, não é telemetria oficial nem previsão de nível
+       (a conversão de vazão pra metros exigiria a curva-chave de cada estação, que não temos).
+       Em rios largos como o Guaíba a grade de 5km pode não acertar o canal certo.</p>
   </footer>
 </div>
 
@@ -165,6 +171,12 @@
 <script>
 const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alagado: 'Alagado', sem_dado: 'Sem dado' };
 const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alagado: '#e24b4a', sem_dado: '#c9ccd2' };
+
+// Reaproveita a mesma paleta de status pro pontinho de frescor da leitura —
+// não é o mesmo conceito (frescor é "a leitura está velha?", não "o rio está
+// alto?"), mas as cores verde/amarelo/vermelho comunicam a mesma urgência.
+const FRESCOR_PARA_COR = { ao_vivo: 'normal', atrasado: 'atencao', obsoleto: 'alagado', sem_dado: 'sem_dado' };
+const FRESCOR_TITULO = { ao_vivo: 'Dado ao vivo', atrasado: 'Dado atrasado (20–60 min)', obsoleto: 'Dado obsoleto (mais de 1h)', sem_dado: 'Sem leitura' };
 
 let dados = null;
 let timerColeta = null;
@@ -262,6 +274,23 @@ function card(e) {
     spark = `<div class="spark-wrap vazio">Sem histórico suficiente</div>`;
   }
 
+  const temPrevisao = Array.isArray(e.previsao) && e.previsao.length >= 2;
+  let previsao;
+  if (temPrevisao) {
+    const vazoes = e.previsao.map((p) => p.vazaoM3s);
+    const min = Math.min(...vazoes);
+    const max = Math.max(...vazoes);
+    previsao = `<p class="prev-titulo">Vazão prevista (7 dias)</p>
+      <div class="spark-wrap"><canvas id="prev-${e.slug}"></canvas></div>
+      <div class="spark-legenda">${min.toFixed(1)}–${max.toFixed(1)} m³/s (modelo, não é nível)</div>`;
+  } else {
+    previsao = `<p class="prev-titulo">Vazão prevista (7 dias)</p>
+      <div class="spark-wrap vazio">Sem previsão disponível</div>`;
+  }
+
+  const corFrescor = CORES[FRESCOR_PARA_COR[e.frescor?.status] || 'sem_dado'];
+  const tituloFrescor = FRESCOR_TITULO[e.frescor?.status] || '';
+
   return `<div class="card ${e.status}" data-slug="${e.slug}">
     <div class="topo">
       <div>
@@ -278,7 +307,8 @@ function card(e) {
       <span>Cota ${e.cota.toFixed(2)} m</span>
       <span>${margem}</span>
     </div>
-    <div class="meta">${e.estacao || 'Estação não informada'} · ${hora(e.medidoEm)}</div>
+    ${previsao}
+    <div class="meta"><span class="frescor" style="background:${corFrescor}" title="${tituloFrescor}"></span>${e.estacao || 'Estação não informada'} · ${hora(e.medidoEm)}</div>
   </div>`;
 }
 
@@ -302,6 +332,7 @@ function render() {
     dados.estacoes.length + ' estações · atualizado ' + hora(dados.atualizadoEm);
 
   desenharSparklines(lista);
+  desenharPrevisoes(lista);
 }
 
 // ---- Mini-gráficos de tendência nos cards ----
@@ -338,6 +369,45 @@ function desenharSparklines(lista) {
       },
     });
     sparklines.set(e.slug, chart);
+  }
+}
+
+// ---- Mini-gráficos de previsão de vazão (tracejado, pra não confundir
+// com o sparkline sólido de nível medido acima) ----
+let previsaoCharts = new Map();
+
+function desenharPrevisoes(lista) {
+  previsaoCharts.forEach((c) => c.destroy());
+  previsaoCharts.clear();
+
+  for (const e of lista) {
+    if (!Array.isArray(e.previsao) || e.previsao.length < 2) continue;
+    const canvas = document.getElementById('prev-' + e.slug);
+    if (!canvas) continue;
+
+    const chart = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: e.previsao.map(() => ''),
+        datasets: [{
+          data: e.previsao.map((p) => p.vazaoM3s),
+          borderColor: '#8b909c',
+          borderDash: [4, 3],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: { x: { display: false }, y: { display: false } },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      },
+    });
+    previsaoCharts.set(e.slug, chart);
   }
 }
 

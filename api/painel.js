@@ -63,6 +63,22 @@ export default async function handler(req, res) {
       seriePorSlug.get(p.slug).push({ nivel: Number(p.nivel), medidoEm: p.medido_em });
     }
 
+    // Previsão de vazão (m³/s) dos próximos dias — dado à parte do nível,
+    // nunca comparado com cota_inundacao (ver lib/previsao.js).
+    const previsaoBruta = await sql`
+      SELECT slug, dia, vazao_m3s
+      FROM previsoes
+      WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
+        AND dia >= CURRENT_DATE
+      ORDER BY slug, dia ASC
+    `;
+
+    const previsaoPorSlug = new Map();
+    for (const p of previsaoBruta) {
+      if (!previsaoPorSlug.has(p.slug)) previsaoPorSlug.set(p.slug, []);
+      previsaoPorSlug.get(p.slug).push({ dia: p.dia, vazaoM3s: Number(p.vazao_m3s) });
+    }
+
     const estacoes = linhas.map((r) => {
       const nivel = r.nivel_atual === null ? null : Number(r.nivel_atual);
       const cota = Number(r.cota_inundacao);
@@ -91,6 +107,8 @@ export default async function handler(req, res) {
         margem: nivel === null ? null : Number((cota - nivel).toFixed(2)),
         status: classificar(nivel, cota),
         serieRecente: seriePorSlug.get(r.slug) || [],
+        previsao: previsaoPorSlug.get(r.slug) || [],
+        frescor: calcularFrescor(r.medido_em),
       };
     });
 
@@ -129,4 +147,19 @@ function classificar(nivel, cota) {
   if (razao >= 0.8) return 'alerta';
   if (razao >= 0.6) return 'atencao';
   return 'normal';
+}
+
+// Frescor de UMA leitura específica — mais granular que o "ultimaColeta"
+// global: uma estação pode estar atrasada mesmo com a coleta geral em dia
+// (ex.: o feed parou de atualizar só aquela estação).
+function calcularFrescor(medidoEm) {
+  if (!medidoEm) return { status: 'sem_dado', idadeSegundos: null };
+
+  const idadeSegundos = Math.round((Date.now() - new Date(medidoEm).getTime()) / 1000);
+  let status;
+  if (idadeSegundos <= 20 * 60) status = 'ao_vivo';
+  else if (idadeSegundos <= 60 * 60) status = 'atrasado';
+  else status = 'obsoleto';
+
+  return { status, idadeSegundos };
 }

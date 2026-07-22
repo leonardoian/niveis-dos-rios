@@ -11,7 +11,8 @@ api/painel.js                         estado atual das estações (nível, cota,
 api/historico.js                      série temporal de uma estação
 lib/db.js                             conexão com o Neon
 lib/feed.js                           leitura e parse do feed JSON
-lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas)
+lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão)
+lib/previsao.js                       busca a previsão de vazão (Open-Meteo/GloFAS) por coordenada
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
 public/index.html                     painel
@@ -31,6 +32,11 @@ Confira:
 ```sql
 SELECT cidade, rio, cota_inundacao FROM estacoes ORDER BY ordem;
 ```
+
+Se o banco já existia antes de `lat`/`lon`/`previsoes` entrarem no schema, rodar
+`schema.sql` de novo é seguro — todo o script é idempotente (`CREATE TABLE IF
+NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `ON CONFLICT DO UPDATE`), então
+completa o que faltar sem duplicar nem apagar nada que já está lá.
 
 ### 2. Variáveis de ambiente no Vercel
 
@@ -175,6 +181,19 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   (`.github/workflows/coletar.yml`, já incluso) **e** um serviço como o
   cron-job.org chamando `/api/coletar` — é seguro por causa do `ON CONFLICT
   DO NOTHING`, e cobre o atraso ocasional de uma fonte com a outra.
+- **Previsão de vazão** (`lib/previsao.js`) vem do Open-Meteo/GloFAS, grátis e
+  sem chave, buscada por coordenada (`lat`/`lon` em `estacoes`). É **vazão em
+  m³/s, não nível em metros** — não dá pra converter uma na outra sem a
+  curva-chave de cada estação, que não temos, então nunca é comparada com
+  `cota_inundacao`. Atualizada no máximo 1x/dia por estação (a API do
+  Open-Meteo só atualiza a previsão nessa cadência); uma falha na previsão
+  não derruba a coleta de nível. Em rios largos como o Guaíba a grade de 5km
+  do modelo pode não acertar o canal certo — os números saem baixos demais
+  nesse caso, é limitação da fonte, não bug.
+- **Frescor por leitura** (`frescor` em cada estação do `/api/painel`) marca
+  `ao_vivo` (≤20 min) / `atrasado` (≤1h) / `obsoleto` (>1h) individualmente —
+  mais granular que o `ultimaColeta` global, que só reflete a estação mais
+  recente entre todas.
 
 ## Fontes dos dados
 
