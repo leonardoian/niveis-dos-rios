@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Monitoramento de Níveis — Uso Interno</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --linha: #e3e5ea;
+    --txt: #16181d;
+    --txt2: #5f6470;
+    --txt3: #8b909c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--txt);
+    padding: 24px 16px 48px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 600; }
+  .sub { font-size: 13px; color: var(--txt3); margin-top: 2px; }
+  .acoes { display: flex; gap: 8px; align-items: center; }
+  select, button {
+    font: inherit; font-size: 13px; padding: 7px 12px;
+    border: 1px solid var(--linha); border-radius: 7px;
+    background: var(--card); color: var(--txt); cursor: pointer;
+  }
+  button:hover { background: var(--bg); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi { background: var(--card); border: 1px solid var(--linha); border-radius: 10px; padding: 14px 16px; }
+  .kpi span { display: block; font-size: 12px; color: var(--txt2); }
+  .kpi strong { display: block; font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--linha); border-radius: 12px; padding: 16px 18px; }
+  .card.alagado { border-color: #e24b4a; }
+  .card.alerta  { border-color: #ef9f27; }
+  .topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .cidade { font-size: 15px; font-weight: 600; }
+  .rio { font-size: 13px; color: var(--txt2); margin-top: 1px; }
+  .tag { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: .3px; }
+  .tag.normal   { background: #eaf3de; color: #27500a; }
+  .tag.atencao  { background: #faeeda; color: #633806; }
+  .tag.alerta   { background: #faeeda; color: #633806; }
+  .tag.alagado  { background: #fcebeb; color: #791f1f; }
+  .tag.sem_dado { background: #eeeeee; color: #666666; }
+  .nivel { font-size: 30px; font-weight: 600; margin-top: 12px; font-variant-numeric: tabular-nums; }
+  .nivel small { font-size: 14px; font-weight: 400; color: var(--txt3); }
+  .vel { font-size: 13px; color: var(--txt2); margin-top: 2px; }
+  .vel.sobe { color: #a32d2d; }
+  .vel.desce { color: #3b6d11; }
+  .barra { height: 6px; border-radius: 3px; background: #eceef2; overflow: hidden; margin: 14px 0 6px; }
+  .barra i { display: block; height: 100%; }
+  .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
+  .meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 11px; color: var(--txt3); }
+  .aviso { background: #fff6e5; border: 1px solid #f0d4a0; color: #6b4c15; padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Níveis dos rios — Bacia do Guaíba</h1>
+      <p class="sub" id="sub">Carregando…</p>
+    </div>
+    <div class="acoes">
+      <select id="ordem">
+        <option value="risco">Ordenar por risco</option>
+        <option value="cidade">Ordenar por cidade</option>
+        <option value="rio">Ordenar por rio</option>
+      </select>
+      <button id="atualizar">Atualizar</button>
+    </div>
+  </header>
+
+  <div id="aviso"></div>
+
+  <div class="kpis">
+    <div class="kpi"><span>Em alerta</span><strong id="k-alerta">—</strong></div>
+    <div class="kpi"><span>Acima da cota</span><strong id="k-alagado">—</strong></div>
+    <div class="kpi"><span>Subindo</span><strong id="k-subindo">—</strong></div>
+    <div class="kpi"><span>Guaíba / Porto Alegre</span><strong id="k-poa">—</strong></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alagado: 'Alagado', sem_dado: 'Sem dado' };
+const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alagado: '#e24b4a', sem_dado: '#c9ccd2' };
+
+let dados = null;
+
+async function carregar() {
+  const btn = document.getElementById('atualizar');
+  btn.disabled = true;
+  btn.textContent = 'Atualizando…';
+  try {
+    const r = await fetch('/api/painel');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    dados = await r.json();
+    document.getElementById('aviso').innerHTML = '';
+    render();
+  } catch (e) {
+    document.getElementById('aviso').innerHTML =
+      '<div class="aviso">Não foi possível carregar os dados: ' + e.message + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Atualizar';
+  }
+}
+
+function hora(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function card(e) {
+  const pct = e.percentualCota === null ? 0 : Math.min(100, e.percentualCota);
+  const cor = CORES[e.status];
+  const nivel = e.nivel === null ? '—' : e.nivel.toFixed(2);
+
+  let vel = '<p class="vel">Tendência indisponível</p>';
+  if (e.velocidadeCmH !== null) {
+    const cls = e.velocidadeCmH > 0 ? 'sobe' : e.velocidadeCmH < 0 ? 'desce' : '';
+    const seta = e.velocidadeCmH > 0 ? '▲' : e.velocidadeCmH < 0 ? '▼' : '■';
+    vel = `<p class="vel ${cls}">${seta} ${Math.abs(e.velocidadeCmH).toFixed(1)} cm/h</p>`;
+  }
+
+  const margem = e.margem === null ? '—'
+    : e.margem >= 0 ? e.margem.toFixed(2) + ' m abaixo'
+    : Math.abs(e.margem).toFixed(2) + ' m acima';
+
+  return `<div class="card ${e.status}">
+    <div class="topo">
+      <div>
+        <div class="cidade">${e.cidade}/${e.uf}</div>
+        <div class="rio">${e.rio}</div>
+      </div>
+      <span class="tag ${e.status}">${ROTULOS[e.status]}</span>
+    </div>
+    <p class="nivel">${nivel}<small> m</small></p>
+    ${vel}
+    <div class="barra"><i style="width:${pct}%;background:${cor}"></i></div>
+    <div class="rodape">
+      <span>Cota ${e.cota.toFixed(2)} m</span>
+      <span>${margem}</span>
+    </div>
+    <div class="meta">${e.estacao || 'Estação não informada'} · ${hora(e.medidoEm)}</div>
+  </div>`;
+}
+
+function render() {
+  if (!dados) return;
+  const ordem = document.getElementById('ordem').value;
+  const lista = [...dados.estacoes];
+
+  if (ordem === 'cidade') lista.sort((a, b) => a.cidade.localeCompare(b.cidade));
+  else if (ordem === 'rio') lista.sort((a, b) => a.rio.localeCompare(b.rio) || a.cidade.localeCompare(b.cidade));
+  else lista.sort((a, b) => (b.percentualCota ?? -1) - (a.percentualCota ?? -1));
+
+  document.getElementById('grid').innerHTML = lista.map(card).join('');
+  document.getElementById('k-alerta').textContent = dados.resumo.emAlerta;
+  document.getElementById('k-alagado').textContent = dados.resumo.acimaDaCota;
+  document.getElementById('k-subindo').textContent = dados.resumo.subindo;
+
+  const poa = dados.estacoes.find(e => e.slug === 'portoalegre');
+  document.getElementById('k-poa').textContent = poa && poa.nivel !== null ? poa.nivel.toFixed(2) + ' m' : '—';
+  document.getElementById('sub').textContent =
+    dados.estacoes.length + ' estações · atualizado ' + hora(dados.atualizadoEm);
+}
+
+document.getElementById('ordem').addEventListener('change', render);
+document.getElementById('atualizar').addEventListener('click', carregar);
+carregar();
+setInterval(carregar, 5 * 60 * 1000);
+</script>
+</body>
+</html>
