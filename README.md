@@ -6,15 +6,16 @@ Sistema interno que coleta os níveis das 13 estações do feed público de
 ## Estrutura
 
 ```
-api/coletar.js            rota HTTP protegida por CRON_SECRET; chama lib/coletar.js
-api/painel.js              estado atual das estações (nível, cota, cm/h, status)
-api/historico.js           série temporal de uma estação
-lib/db.js                  conexão com o Neon
-lib/feed.js                leitura e parse do feed JSON
-lib/coletar.js             lógica de coleta em si (fetch + grava + alertas)
-scripts/coletar-local.js   roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
-public/index.html          painel
-schema.sql                 tabelas + carga inicial das 13 estações
+api/coletar.js                       rota HTTP protegida por CRON_SECRET; chama lib/coletar.js
+api/painel.js                         estado atual das estações (nível, cota, cm/h, status)
+api/historico.js                      série temporal de uma estação
+lib/db.js                             conexão com o Neon
+lib/feed.js                           leitura e parse do feed JSON
+lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas)
+scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
+.github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
+public/index.html                     painel
+schema.sql                            tabelas + carga inicial das 13 estações
 ```
 
 ## Passo a passo
@@ -57,8 +58,12 @@ feito por um serviço externo — ver passo seguinte.
 
 ### 4. Agendamento da coleta (cron externo)
 
-Configure um serviço como o [cron-job.org](https://cron-job.org) para chamar
-`/api/coletar` a cada 15 minutos com o header:
+O plano Hobby do Vercel não agenda nada nesse projeto, então a coleta de 15 em
+15 minutos precisa vir de fora. Duas opções — escolha uma:
+
+**Opção A — cron-job.org chamando o Vercel.** Configure um serviço como o
+[cron-job.org](https://cron-job.org) para chamar `/api/coletar` a cada 15
+minutos com o header:
 
 ```
 Authorization: Bearer SEU_CRON_SECRET
@@ -67,6 +72,22 @@ Authorization: Bearer SEU_CRON_SECRET
 A rota não depende de nada específico do Vercel Cron — é uma função HTTP comum
 que só valida esse header, então funciona com qualquer serviço de agendamento
 externo, não só o cron-job.org.
+
+**Opção B — GitHub Actions, sem tocar no Vercel.** Este repositório já traz
+`.github/workflows/coletar.yml`, que roda `scripts/coletar-local.js` a cada 15
+minutos direto no Neon — não passa pela rota HTTP nem depende do Vercel estar
+no ar. Pra ativar:
+
+1. No GitHub: Settings → Secrets and variables → Actions → New repository
+   secret → nome `DATABASE_URL`, valor a connection string do Neon.
+2. Pronto — o workflow já está no repo e roda sozinho a partir do próximo
+   agendamento. Pra testar sem esperar, vá em Actions → "Coleta de níveis dos
+   rios" → Run workflow (usa o gatilho `workflow_dispatch`).
+
+Duas ressalvas do GitHub Actions: o agendamento (`cron:`) não é exato — o
+GitHub pode atrasar alguns minutos em horários de pico — e workflows agendados
+são **desativados automaticamente após 60 dias sem nenhum commit** no
+repositório (basta reativar em Actions se isso acontecer).
 
 ### 5. Primeira coleta
 
@@ -134,9 +155,10 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 - **Duplicatas**: a constraint `UNIQUE (slug, medido_em)` faz o cron ser
   idempotente — se o feed não atualizou, nada é inserido.
 - **Status**: normal < 60% da cota · atenção ≥ 60% · alerta ≥ 80% · alagado ≥ 100%.
-- O agendamento da coleta é externo (cron-job.org ou similar) chamando
-  `/api/coletar` a cada 15 minutos — o Vercel não agenda nada neste projeto,
-  já que o plano Hobby só libera cron nativo 1x/dia.
+- O agendamento da coleta é externo — o Vercel não agenda nada neste projeto,
+  já que o plano Hobby só libera cron nativo 1x/dia. Use o GitHub Actions
+  (`.github/workflows/coletar.yml`, já incluso) ou um serviço como o
+  cron-job.org chamando `/api/coletar`.
 
 ## Fontes dos dados
 
