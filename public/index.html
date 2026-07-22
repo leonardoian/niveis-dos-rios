@@ -100,6 +100,7 @@
     <div>
       <h1>Níveis dos rios — Bacia do Guaíba</h1>
       <p class="sub" id="sub">Carregando…</p>
+      <p class="sub" id="proxColeta"></p>
     </div>
     <div class="acoes">
       <select id="ordem">
@@ -151,6 +152,45 @@ const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alag
 const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alagado: '#e24b4a', sem_dado: '#c9ccd2' };
 
 let dados = null;
+let timerColeta = null;
+let proximaColetaEm = null;
+
+// A coleta roda a cada 15 min (ver .github/workflows/coletar.yml); a
+// contagem é só uma estimativa a partir da leitura mais recente — o GitHub
+// Actions pode atrasar alguns minutos, então perto de zero vira um aviso
+// de atraso em vez de um número negativo.
+const INTERVALO_COLETA_MS = 15 * 60 * 1000;
+
+function iniciarContagemColeta(ultimaColetaIso) {
+  clearInterval(timerColeta);
+  const el = document.getElementById('proxColeta');
+  if (!ultimaColetaIso) {
+    if (el) el.textContent = '';
+    proximaColetaEm = null;
+    return;
+  }
+  proximaColetaEm = new Date(ultimaColetaIso).getTime() + INTERVALO_COLETA_MS;
+  atualizarContagem();
+  timerColeta = setInterval(atualizarContagem, 1000);
+}
+
+function atualizarContagem() {
+  const el = document.getElementById('proxColeta');
+  if (!el || proximaColetaEm === null) return;
+
+  const restante = proximaColetaEm - Date.now();
+  if (restante <= 0) {
+    const atrasoMin = Math.floor(-restante / 60000);
+    el.textContent = atrasoMin < 1
+      ? '⏱ atualizando a qualquer momento'
+      : `⏱ atrasado ${atrasoMin} min`;
+    return;
+  }
+
+  const min = String(Math.floor(restante / 60000)).padStart(2, '0');
+  const seg = String(Math.floor((restante % 60000) / 1000)).padStart(2, '0');
+  el.textContent = `⏱ próxima coleta em ${min}:${seg}`;
+}
 
 async function carregar() {
   const btn = document.getElementById('atualizar');
@@ -162,6 +202,7 @@ async function carregar() {
     dados = await r.json();
     document.getElementById('aviso').innerHTML = '';
     render();
+    iniciarContagemColeta(dados.ultimaColeta);
   } catch (e) {
     document.getElementById('aviso').innerHTML =
       '<div class="aviso">Não foi possível carregar os dados: ' + e.message + '</div>';

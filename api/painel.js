@@ -96,9 +96,18 @@ export default async function handler(req, res) {
 
     const comDado = estacoes.filter((e) => e.nivel !== null);
 
+    // Horário da leitura mais recente entre todas as estações — usado no
+    // front pra estimar quando a próxima coleta (a cada 15 min) deve chegar.
+    let ultimaColeta = null;
+    for (const e of comDado) {
+      const t = new Date(e.medidoEm).getTime();
+      if (ultimaColeta === null || t > ultimaColeta) ultimaColeta = t;
+    }
+
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     return res.status(200).json({
       atualizadoEm: new Date().toISOString(),
+      ultimaColeta: ultimaColeta === null ? null : new Date(ultimaColeta).toISOString(),
       resumo: {
         total: estacoes.length,
         emAlerta: comDado.filter((e) => e.status === 'alerta').length,
