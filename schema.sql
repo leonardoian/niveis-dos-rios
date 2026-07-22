@@ -44,7 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_alertas_slug_data
     ON alertas (slug, criado_em DESC);
 
 -- ============================================================
--- Carga inicial das 13 estações (cotas conforme sua planilha)
+-- Carga inicial das 14 estações (cotas conforme sua planilha)
 -- ============================================================
 INSERT INTO estacoes (slug, cidade, rio, estacao, cota_inundacao, ordem) VALUES
     ('portoalegre',       'Porto Alegre',          'Guaíba',           'Usina do Gasômetro',                 3.00,  1),
@@ -59,7 +59,8 @@ INSERT INTO estacoes (slug, cidade, rio, estacao, cota_inundacao, ordem) VALUES
     ('mucum',             'Muçum',                 'Rio Alto Taquari', NULL,                                18.00, 10),
     ('riopardo',          'Rio Pardo',             'Rio Jacuí',        'Rio Pardo',                         12.50, 11),
     ('saosebastiaodocai', 'São Sebastião do Caí',  'Rio Caí',          'Barca do Caí',                      10.00, 12),
-    ('taquara',           'Taquara',               'Rio dos Sinos',    NULL,                                 6.00, 13)
+    ('taquara',           'Taquara',               'Rio dos Sinos',    NULL,                                 6.00, 13),
+    ('rocasales',         'Roca Sales',            'Rio Alto Taquari', NULL,                                18.00, 14)
 ON CONFLICT (slug) DO UPDATE SET
     cidade         = EXCLUDED.cidade,
     rio            = EXCLUDED.rio,

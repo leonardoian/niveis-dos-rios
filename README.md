@@ -1,6 +1,6 @@
 # Monitoramento de Níveis dos Rios — Bacia do Guaíba
 
-Sistema interno que coleta os níveis das 13 estações do feed público de
+Sistema interno que coleta os níveis das 14 estações do feed público de
 `nivelguaiba.com.br`, guarda a série histórica no Neon e exibe o painel.
 
 ## Estrutura
@@ -15,7 +15,7 @@ lib/coletar.js                        lógica de coleta em si (fetch + grava + a
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
 public/index.html                     painel
-schema.sql                            tabelas + carga inicial das 13 estações
+schema.sql                            tabelas + carga inicial das 14 estações
 ```
 
 ## Passo a passo
