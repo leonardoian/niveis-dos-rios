@@ -61,6 +61,8 @@
   .vel.desce { color: #3b6d11; }
   .barra { height: 6px; border-radius: 3px; background: #eceef2; overflow: hidden; margin: 14px 0 6px; }
   .barra i { display: block; height: 100%; }
+  .spark-wrap { height: 32px; margin: 10px 0 2px; }
+  .spark-wrap.vazio { display: flex; align-items: center; font-size: 11px; color: var(--txt3); }
   .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
   .meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 11px; color: var(--txt3); }
   .aviso { background: #fff6e5; border: 1px solid #f0d4a0; color: #6b4c15; padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
@@ -191,6 +193,11 @@ function card(e) {
     : e.margem >= 0 ? e.margem.toFixed(2) + ' m abaixo'
     : Math.abs(e.margem).toFixed(2) + ' m acima';
 
+  const temSerie = Array.isArray(e.serieRecente) && e.serieRecente.length >= 2;
+  const spark = temSerie
+    ? `<div class="spark-wrap"><canvas id="spark-${e.slug}"></canvas></div>`
+    : `<div class="spark-wrap vazio">Sem histórico suficiente (24h)</div>`;
+
   return `<div class="card ${e.status}" data-slug="${e.slug}">
     <div class="topo">
       <div>
@@ -201,6 +208,7 @@ function card(e) {
     </div>
     <p class="nivel">${nivel}<small> m</small></p>
     ${vel}
+    ${spark}
     <div class="barra"><i style="width:${pct}%;background:${cor}"></i></div>
     <div class="rodape">
       <span>Cota ${e.cota.toFixed(2)} m</span>
@@ -228,6 +236,45 @@ function render() {
   document.getElementById('k-poa').textContent = poa && poa.nivel !== null ? poa.nivel.toFixed(2) + ' m' : '—';
   document.getElementById('sub').textContent =
     dados.estacoes.length + ' estações · atualizado ' + hora(dados.atualizadoEm);
+
+  desenharSparklines(lista);
+}
+
+// ---- Mini-gráficos de tendência nos cards ----
+let sparklines = new Map();
+
+function desenharSparklines(lista) {
+  sparklines.forEach((c) => c.destroy());
+  sparklines.clear();
+
+  for (const e of lista) {
+    if (!Array.isArray(e.serieRecente) || e.serieRecente.length < 2) continue;
+    const canvas = document.getElementById('spark-' + e.slug);
+    if (!canvas) continue;
+
+    const chart = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: e.serieRecente.map(() => ''),
+        datasets: [{
+          data: e.serieRecente.map((p) => p.nivel),
+          borderColor: CORES[e.status],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: { x: { display: false }, y: { display: false } },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      },
+    });
+    sparklines.set(e.slug, chart);
+  }
 }
 
 document.getElementById('ordem').addEventListener('change', render);

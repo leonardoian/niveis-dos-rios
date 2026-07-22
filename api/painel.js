@@ -38,6 +38,22 @@ export default async function handler(req, res) {
       ORDER BY e.ordem
     `;
 
+    // Série curta (24h) por estação, pra desenhar o mini-gráfico de tendência
+    // no card — não precisa de uma chamada por estação, uma query só resolve.
+    const serieBruta = await sql`
+      SELECT slug, nivel, medido_em
+      FROM leituras
+      WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
+        AND medido_em >= NOW() - INTERVAL '24 hours'
+      ORDER BY slug, medido_em ASC
+    `;
+
+    const seriePorSlug = new Map();
+    for (const p of serieBruta) {
+      if (!seriePorSlug.has(p.slug)) seriePorSlug.set(p.slug, []);
+      seriePorSlug.get(p.slug).push({ nivel: Number(p.nivel), medidoEm: p.medido_em });
+    }
+
     const estacoes = linhas.map((r) => {
       const nivel = r.nivel_atual === null ? null : Number(r.nivel_atual);
       const cota = Number(r.cota_inundacao);
@@ -65,6 +81,7 @@ export default async function handler(req, res) {
         percentualCota: nivel === null ? null : Number(((nivel / cota) * 100).toFixed(1)),
         margem: nivel === null ? null : Number((cota - nivel).toFixed(2)),
         status: classificar(nivel, cota),
+        serieRecente: seriePorSlug.get(r.slug) || [],
       };
     });
 
