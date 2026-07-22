@@ -38,7 +38,11 @@
   .kpi span { display: block; font-size: 12px; color: var(--txt2); }
   .kpi strong { display: block; font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
-  .card { background: var(--card); border: 1px solid var(--linha); border-radius: 12px; padding: 16px 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--linha); border-radius: 12px; padding: 16px 18px;
+    cursor: pointer; transition: box-shadow .15s, transform .15s;
+  }
+  .card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.08); }
   .card.alagado { border-color: #e24b4a; }
   .card.alerta  { border-color: #ef9f27; }
   .topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
@@ -60,6 +64,31 @@
   .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
   .meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 11px; color: var(--txt3); }
   .aviso { background: #fff6e5; border: 1px solid #f0d4a0; color: #6b4c15; padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(22,24,29,.55);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; z-index: 50;
+  }
+  .modal-overlay[hidden] { display: none; }
+  .modal {
+    background: var(--card); border-radius: 12px; padding: 20px 22px;
+    width: 100%; max-width: 720px; max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  }
+  .modal-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .modal-cidade { font-size: 17px; font-weight: 600; }
+  .modal-rio { font-size: 13px; color: var(--txt2); margin-top: 2px; }
+  .modal-fechar {
+    border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer;
+    color: var(--txt3); padding: 4px 8px; border-radius: 6px;
+  }
+  .modal-fechar:hover { background: var(--bg); color: var(--txt); }
+  .modal-janelas { display: flex; gap: 8px; margin: 14px 0; }
+  .janela-btn { font-size: 12px; padding: 6px 12px; }
+  .janela-btn.ativo { background: var(--txt); color: #fff; border-color: var(--txt); }
+  .modal-corpo { position: relative; height: 300px; }
+  .modal-vazio { text-align: center; color: var(--txt3); font-size: 13px; padding: 60px 20px; }
 </style>
 </head>
 <body>
@@ -91,6 +120,29 @@
   <div class="grid" id="grid"></div>
 </div>
 
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalCidade">
+    <div class="modal-topo">
+      <div>
+        <div class="modal-cidade" id="modalCidade">—</div>
+        <div class="modal-rio" id="modalRio">—</div>
+      </div>
+      <button class="modal-fechar" id="modalFechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="modal-janelas">
+      <button class="janela-btn" data-horas="24">24h</button>
+      <button class="janela-btn" data-horas="72">3d</button>
+      <button class="janela-btn" data-horas="168">7d</button>
+      <button class="janela-btn" data-horas="720">30d</button>
+    </div>
+    <div class="modal-corpo">
+      <canvas id="graficoHistorico"></canvas>
+      <p class="modal-vazio" id="modalVazio" hidden></p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alagado: 'Alagado', sem_dado: 'Sem dado' };
 const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alagado: '#e24b4a', sem_dado: '#c9ccd2' };
@@ -139,7 +191,7 @@ function card(e) {
     : e.margem >= 0 ? e.margem.toFixed(2) + ' m abaixo'
     : Math.abs(e.margem).toFixed(2) + ' m acima';
 
-  return `<div class="card ${e.status}">
+  return `<div class="card ${e.status}" data-slug="${e.slug}">
     <div class="topo">
       <div>
         <div class="cidade">${e.cidade}/${e.uf}</div>
@@ -182,6 +234,160 @@ document.getElementById('ordem').addEventListener('change', render);
 document.getElementById('atualizar').addEventListener('click', carregar);
 carregar();
 setInterval(carregar, 5 * 60 * 1000);
+
+// ---- Gráfico de histórico (modal) ----
+let chartInstancia = null;
+let slugAtual = null;
+let janelaAtual = 24;
+
+function abrirHistorico(slug) {
+  const estacao = dados && dados.estacoes.find((e) => e.slug === slug);
+  if (!estacao) return;
+
+  slugAtual = slug;
+  document.getElementById('modalCidade').textContent = estacao.cidade + '/' + estacao.uf;
+  document.getElementById('modalRio').textContent = estacao.rio;
+  document.getElementById('modalOverlay').hidden = false;
+  document.body.style.overflow = 'hidden';
+  selecionarJanela(24);
+}
+
+function fecharHistorico() {
+  document.getElementById('modalOverlay').hidden = true;
+  document.body.style.overflow = '';
+  if (chartInstancia) {
+    chartInstancia.destroy();
+    chartInstancia = null;
+  }
+  slugAtual = null;
+}
+
+function selecionarJanela(horas) {
+  janelaAtual = horas;
+  document.querySelectorAll('.janela-btn').forEach((b) => {
+    b.classList.toggle('ativo', Number(b.dataset.horas) === horas);
+  });
+  carregarHistorico();
+}
+
+async function carregarHistorico() {
+  if (!slugAtual) return;
+  const canvas = document.getElementById('graficoHistorico');
+  const vazio = document.getElementById('modalVazio');
+  canvas.hidden = false;
+  vazio.hidden = true;
+
+  try {
+    const r = await fetch(`/api/historico?slug=${encodeURIComponent(slugAtual)}&horas=${janelaAtual}`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const resposta = await r.json();
+    desenharGrafico(resposta);
+  } catch (e) {
+    if (chartInstancia) {
+      chartInstancia.destroy();
+      chartInstancia = null;
+    }
+    canvas.hidden = true;
+    vazio.hidden = false;
+    vazio.textContent = 'Não foi possível carregar o histórico: ' + e.message;
+  }
+}
+
+function desenharGrafico(resposta) {
+  const canvas = document.getElementById('graficoHistorico');
+  const vazio = document.getElementById('modalVazio');
+  const pontos = resposta.pontos;
+
+  if (chartInstancia) {
+    chartInstancia.destroy();
+    chartInstancia = null;
+  }
+
+  // Uma linha com 0 ou 1 ponto não forma série — mostra mensagem em vez de gráfico vazio.
+  if (pontos.length < 2) {
+    canvas.hidden = true;
+    vazio.hidden = false;
+    vazio.textContent = pontos.length === 0
+      ? 'Nenhuma leitura registrada nessa janela.'
+      : 'Apenas uma leitura registrada nessa janela — sem dados suficientes para o gráfico.';
+    return;
+  }
+
+  canvas.hidden = false;
+  vazio.hidden = true;
+
+  const estacaoPainel = dados.estacoes.find((e) => e.slug === slugAtual);
+  const cor = CORES[estacaoPainel ? estacaoPainel.status : 'sem_dado'];
+  const cota = resposta.estacao.cota;
+
+  chartInstancia = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: pontos.map((p) => hora(p.medidoEm)),
+      datasets: [
+        {
+          label: resposta.estacao.cidade,
+          data: pontos.map((p) => p.nivel),
+          borderColor: cor,
+          backgroundColor: cor,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+          borderWidth: 2,
+          tension: 0.25,
+          fill: false,
+        },
+        {
+          label: 'Cota de inundação (' + cota.toFixed(2) + ' m)',
+          data: pontos.map(() => cota),
+          borderColor: '#8b909c',
+          borderDash: [6, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          ticks: { autoSkip: true, maxRotation: 0, color: '#5f6470' },
+          grid: { display: false },
+        },
+        y: {
+          ticks: { color: '#5f6470', callback: (v) => Number(v).toFixed(2) },
+          title: { display: true, text: 'Metros' },
+        },
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            title: (items) => new Date(pontos[items[0].dataIndex].medidoEm).toLocaleString('pt-BR'),
+            label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' m',
+          },
+        },
+      },
+    },
+  });
+}
+
+document.getElementById('grid').addEventListener('click', (ev) => {
+  const card = ev.target.closest('.card');
+  if (card && card.dataset.slug) abrirHistorico(card.dataset.slug);
+});
+document.getElementById('modalFechar').addEventListener('click', fecharHistorico);
+document.getElementById('modalOverlay').addEventListener('click', (ev) => {
+  if (ev.target.id === 'modalOverlay') fecharHistorico();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && !document.getElementById('modalOverlay').hidden) fecharHistorico();
+});
+document.querySelectorAll('.janela-btn').forEach((b) => {
+  b.addEventListener('click', () => selecionarJanela(Number(b.dataset.horas)));
+});
 </script>
 </body>
 </html>
