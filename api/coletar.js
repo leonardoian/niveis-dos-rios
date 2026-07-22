@@ -1,8 +1,9 @@
 import { sql } from '../lib/db.js';
 import { buscarFeed } from '../lib/feed.js';
 
-// Acionada pelo Vercel Cron a cada 15 minutos (ver vercel.json).
-// Também pode ser chamada manualmente com o header Authorization.
+// Agendamento é externo (ex.: cron-job.org) chamando esta rota a cada 15 min
+// com o header Authorization: Bearer $CRON_SECRET — o plano Hobby do Vercel
+// só permite cron nativo 1x/dia, então não há Vercel Cron aqui.
 export default async function handler(req, res) {
   const segredo = process.env.CRON_SECRET;
   const autorizacao = req.headers.authorization;

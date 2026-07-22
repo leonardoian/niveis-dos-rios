@@ -49,14 +49,27 @@ npm install
 npx vercel --prod
 ```
 
-O `vercel.json` já registra o cron de 15 em 15 minutos apontando para
-`/api/coletar`. O Vercel envia o header `Authorization: Bearer $CRON_SECRET`
-automaticamente nas chamadas agendadas.
+O plano Hobby do Vercel não aceita cron nativo mais frequente que 1x/dia, então
+o `vercel.json` não registra nenhum cron. O agendamento de 15 em 15 minutos é
+feito por um serviço externo — ver passo seguinte.
 
-### 4. Primeira coleta
+### 4. Agendamento da coleta (cron externo)
 
-O cron leva até 15 minutos para rodar pela primeira vez. Para popular o banco
-na hora:
+Configure um serviço como o [cron-job.org](https://cron-job.org) para chamar
+`/api/coletar` a cada 15 minutos com o header:
+
+```
+Authorization: Bearer SEU_CRON_SECRET
+```
+
+A rota não depende de nada específico do Vercel Cron — é uma função HTTP comum
+que só valida esse header, então funciona com qualquer serviço de agendamento
+externo, não só o cron-job.org.
+
+### 5. Primeira coleta
+
+Para popular o banco na hora, sem esperar o primeiro disparo do agendador
+externo:
 
 ```bash
 curl -H "Authorization: Bearer SEU_CRON_SECRET" \
@@ -89,9 +102,9 @@ duas leituras para calcular a variação.
 - **Duplicatas**: a constraint `UNIQUE (slug, medido_em)` faz o cron ser
   idempotente — se o feed não atualizou, nada é inserido.
 - **Status**: normal < 60% da cota · atenção ≥ 60% · alerta ≥ 80% · alagado ≥ 100%.
-- O plano gratuito do Vercel permite crons apenas uma vez por dia. Para o
-  intervalo de 15 minutos é necessário o plano Pro; alternativa gratuita é usar
-  o cron-job.org chamando a mesma rota com o header de autorização.
+- O agendamento da coleta é externo (cron-job.org ou similar) chamando
+  `/api/coletar` a cada 15 minutos — o Vercel não agenda nada neste projeto,
+  já que o plano Hobby só libera cron nativo 1x/dia.
 
 ## Fontes dos dados
 
