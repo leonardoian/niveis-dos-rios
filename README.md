@@ -59,24 +59,37 @@ feito por um serviço externo — ver passo seguinte.
 ### 4. Agendamento da coleta (cron externo)
 
 O plano Hobby do Vercel não agenda nada nesse projeto, então a coleta de 15 em
-15 minutos precisa vir de fora. Duas opções — escolha uma:
+15 minutos precisa vir de fora. Tem duas fontes possíveis — **e a recomendação
+é configurar as duas ao mesmo tempo**, não escolher uma só.
 
-**Opção A — cron-job.org chamando o Vercel.** Configure um serviço como o
-[cron-job.org](https://cron-job.org) para chamar `/api/coletar` a cada 15
-minutos com o header:
+Motivo: na prática, o `schedule` do GitHub Actions não é confiável no minuto
+exato — já aconteceu de passar mais de 30 minutos sem disparar, sem nenhum
+erro visível, só silêncio. Rodar as duas fontes em paralelo, com os horários
+intercalados, cobre a falha de uma com a outra. E isso é seguro: a constraint
+`UNIQUE (slug, medido_em)` com `ON CONFLICT DO NOTHING` faz a coleta ser
+idempotente, então duas fontes tentando gravar a mesma leitura no mesmo minuto
+nunca duplicam nada — na pior das hipóteses, uma delas grava 0 linhas novas.
+
+**Fonte A — cron-job.org chamando o Vercel.** Configure um cron job no
+[cron-job.org](https://cron-job.org) apontando pra `/api/coletar` com o header:
 
 ```
 Authorization: Bearer SEU_CRON_SECRET
 ```
 
+Em vez de `*/15 * * * *` (que cairia nos mesmos minutos 0/15/30/45 do GitHub
+Actions), usa um horário **intercalado**, por exemplo `7,22,37,52 * * * *` —
+assim, se uma fonte atrasar ou falhar, a outra passa por ali uns 7-8 minutos
+depois, em vez de só na próxima marca de 15 minutos inteira.
+
 A rota não depende de nada específico do Vercel Cron — é uma função HTTP comum
 que só valida esse header, então funciona com qualquer serviço de agendamento
 externo, não só o cron-job.org.
 
-**Opção B — GitHub Actions, sem tocar no Vercel.** Este repositório já traz
+**Fonte B — GitHub Actions, sem tocar no Vercel.** Este repositório já traz
 `.github/workflows/coletar.yml`, que roda `scripts/coletar-local.js` a cada 15
-minutos direto no Neon — não passa pela rota HTTP nem depende do Vercel estar
-no ar. Pra ativar:
+minutos (`*/15 * * * *`) direto no Neon — não passa pela rota HTTP nem depende
+do Vercel estar no ar. Pra ativar:
 
 1. No GitHub: Settings → Secrets and variables → Actions → New repository
    secret → nome `DATABASE_URL`, valor a connection string do Neon.
@@ -85,9 +98,10 @@ no ar. Pra ativar:
    rios" → Run workflow (usa o gatilho `workflow_dispatch`).
 
 Duas ressalvas do GitHub Actions: o agendamento (`cron:`) não é exato — o
-GitHub pode atrasar alguns minutos em horários de pico — e workflows agendados
-são **desativados automaticamente após 60 dias sem nenhum commit** no
-repositório (basta reativar em Actions se isso acontecer).
+GitHub pode atrasar alguns minutos (às vezes bem mais) em horários de pico —
+e workflows agendados são **desativados automaticamente após 60 dias sem
+nenhum commit** no repositório (basta reativar em Actions se isso acontecer).
+Rodar o cron-job.org junto cobre exatamente essa falha.
 
 ### 5. Primeira coleta
 
@@ -156,9 +170,11 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   idempotente — se o feed não atualizou, nada é inserido.
 - **Status**: normal < 60% da cota · atenção ≥ 60% · alerta ≥ 80% · alagado ≥ 100%.
 - O agendamento da coleta é externo — o Vercel não agenda nada neste projeto,
-  já que o plano Hobby só libera cron nativo 1x/dia. Use o GitHub Actions
-  (`.github/workflows/coletar.yml`, já incluso) ou um serviço como o
-  cron-job.org chamando `/api/coletar`.
+  já que o plano Hobby só libera cron nativo 1x/dia. Recomendado rodar as
+  **duas** fontes em paralelo, com horários intercalados: o GitHub Actions
+  (`.github/workflows/coletar.yml`, já incluso) **e** um serviço como o
+  cron-job.org chamando `/api/coletar` — é seguro por causa do `ON CONFLICT
+  DO NOTHING`, e cobre o atraso ocasional de uma fonte com a outra.
 
 ## Fontes dos dados
 
