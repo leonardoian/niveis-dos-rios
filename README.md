@@ -6,13 +6,15 @@ Sistema interno que coleta os níveis das 13 estações do feed público de
 ## Estrutura
 
 ```
-api/coletar.js     rota chamada pelo Vercel Cron a cada 15 min
-api/painel.js      estado atual das estações (nível, cota, cm/h, status)
-api/historico.js   série temporal de uma estação
-lib/db.js          conexão com o Neon
-lib/feed.js        leitura e parse do feed JSON
-public/index.html  painel
-schema.sql         tabelas + carga inicial das 13 estações
+api/coletar.js            rota HTTP protegida por CRON_SECRET; chama lib/coletar.js
+api/painel.js              estado atual das estações (nível, cota, cm/h, status)
+api/historico.js           série temporal de uma estação
+lib/db.js                  conexão com o Neon
+lib/feed.js                leitura e parse do feed JSON
+lib/coletar.js             lógica de coleta em si (fetch + grava + alertas)
+scripts/coletar-local.js   roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
+public/index.html          painel
+schema.sql                 tabelas + carga inicial das 13 estações
 ```
 
 ## Passo a passo
@@ -84,6 +86,36 @@ Resposta esperada:
 
 A coluna `velocidadeCmH` só aparece a partir da segunda coleta — ela precisa de
 duas leituras para calcular a variação.
+
+## Rodando a coleta sem depender do Vercel
+
+A coleta (buscar o feed + gravar no Neon) está isolada em `lib/coletar.js` e
+não depende de nada específico do Vercel — o driver da Neon usa HTTP, então
+funciona de qualquer lugar com Node 20+. Pra rodar direto do terminal, sem
+passar pela rota `/api/coletar`:
+
+1. Crie um `.env` local (nunca commitado — já está no `.gitignore`) com:
+
+   ```
+   DATABASE_URL=postgresql://usuario:senha@host.neon.tech/neondb?sslmode=require
+   ```
+
+   Não precisa de `CRON_SECRET` aqui — o script não é uma rota exposta na
+   internet.
+
+2. Rode:
+
+   ```bash
+   npm run coletar
+   ```
+
+   Isso executa `node --env-file=.env scripts/coletar-local.js`, que chama a
+   mesma lógica de `api/coletar.js` e imprime o resultado no terminal.
+
+Esse script pode ser agendado por qualquer coisa fora do Vercel — cron da sua
+própria máquina, um GitHub Actions com `schedule:`, etc. — desde que o
+ambiente tenha `DATABASE_URL`. Ele grava direto no Neon; o painel (`/api/painel`,
+hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado.
 
 ## Endpoints
 
