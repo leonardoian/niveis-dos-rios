@@ -1,4 +1,5 @@
 import { sql } from '../lib/db.js';
+import { classificar, calcularVelocidade, calcularFrescor } from '../lib/calculo.js';
 
 // Retorna o estado atual de todas as estações, no formato que o painel consome.
 // A velocidade (cm/h) é calculada aqui a partir das duas últimas leituras —
@@ -93,15 +94,12 @@ export default async function handler(req, res) {
       // Primeiro dia da previsão com dado de clima — normalmente hoje.
       const climaHoje = previsao.find((p) => p.tempMax !== null) || null;
 
-      // cm/h = (variação em metros × 100) / horas decorridas
-      let velocidade = null;
-      if (nivel !== null && r.nivel_anterior !== null) {
-        const horas =
-          (new Date(r.medido_em) - new Date(r.medido_em_anterior)) / 3_600_000;
-        if (horas > 0) {
-          velocidade = ((nivel - Number(r.nivel_anterior)) * 100) / horas;
-        }
-      }
+      const velocidade = calcularVelocidade(
+        nivel,
+        r.nivel_anterior === null ? null : Number(r.nivel_anterior),
+        r.medido_em,
+        r.medido_em_anterior
+      );
 
       return {
         slug: r.slug,
@@ -149,28 +147,4 @@ export default async function handler(req, res) {
     console.error('Falha ao montar painel:', erro);
     return res.status(500).json({ erro: erro.message });
   }
-}
-
-function classificar(nivel, cota) {
-  if (nivel === null) return 'sem_dado';
-  const razao = nivel / cota;
-  if (razao >= 1) return 'alagado';
-  if (razao >= 0.8) return 'alerta';
-  if (razao >= 0.6) return 'atencao';
-  return 'normal';
-}
-
-// Frescor de UMA leitura específica — mais granular que o "ultimaColeta"
-// global: uma estação pode estar atrasada mesmo com a coleta geral em dia
-// (ex.: o feed parou de atualizar só aquela estação).
-function calcularFrescor(medidoEm) {
-  if (!medidoEm) return { status: 'sem_dado', idadeSegundos: null };
-
-  const idadeSegundos = Math.round((Date.now() - new Date(medidoEm).getTime()) / 1000);
-  let status;
-  if (idadeSegundos <= 20 * 60) status = 'ao_vivo';
-  else if (idadeSegundos <= 60 * 60) status = 'atrasado';
-  else status = 'obsoleto';
-
-  return { status, idadeSegundos };
 }

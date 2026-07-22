@@ -14,6 +14,33 @@
     --txt: #16181d;
     --txt2: #5f6470;
     --txt3: #8b909c;
+    --aviso-bg: #fff6e5;
+    --aviso-border: #f0d4a0;
+    --aviso-txt: #6b4c15;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tema="claro"]) {
+      --bg: #14161b;
+      --card: #1c1f26;
+      --linha: #2a2e37;
+      --txt: #e8e9ed;
+      --txt2: #a8adb8;
+      --txt3: #767c88;
+      --aviso-bg: #3a2f16;
+      --aviso-border: #5c4a1f;
+      --aviso-txt: #f0d4a0;
+    }
+  }
+  :root[data-tema="escuro"] {
+    --bg: #14161b;
+    --card: #1c1f26;
+    --linha: #2a2e37;
+    --txt: #e8e9ed;
+    --txt2: #a8adb8;
+    --txt3: #767c88;
+    --aviso-bg: #3a2f16;
+    --aviso-border: #5c4a1f;
+    --aviso-txt: #f0d4a0;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -24,12 +51,18 @@
     line-height: 1.5;
   }
   .wrap { max-width: 980px; margin: 0 auto; }
-  header { margin-bottom: 8px; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
   h1 { font-size: 20px; font-weight: 600; }
   .sub { font-size: 13px; color: var(--txt3); margin-top: 2px; }
   .voltar { font-size: 13px; color: var(--txt2); text-decoration: none; }
   .voltar:hover { text-decoration: underline; }
-  .aviso { background: #fff6e5; border: 1px solid #f0d4a0; color: #6b4c15; padding: 12px 14px; border-radius: 8px; font-size: 13px; margin: 16px 0; }
+  button {
+    font: inherit; font-size: 13px; padding: 7px 12px;
+    border: 1px solid var(--linha); border-radius: 7px;
+    background: var(--card); color: var(--txt); cursor: pointer;
+  }
+  button:hover { background: var(--bg); }
+  .aviso { background: var(--aviso-bg); border: 1px solid var(--aviso-border); color: var(--aviso-txt); padding: 12px 14px; border-radius: 8px; font-size: 13px; margin: 16px 0; }
 
   .bacia { margin-top: 28px; }
   .tier { text-align: center; }
@@ -79,9 +112,12 @@
 <body>
 <div class="wrap">
   <header>
-    <a class="voltar" href="index.html">← voltar pro painel</a>
-    <h1>Mapa da bacia — caminho dos rios</h1>
-    <p class="sub" id="sub">Carregando…</p>
+    <div>
+      <a class="voltar" href="index.html">← voltar pro painel</a>
+      <h1>Mapa da bacia — caminho dos rios</h1>
+      <p class="sub" id="sub">Carregando…</p>
+    </div>
+    <button id="temaToggle" type="button" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">🌙</button>
   </header>
 
   <div id="aviso"></div>
@@ -142,6 +178,26 @@
 
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+// ---- Tema claro/escuro (mesma lógica do painel principal) ----
+function aplicarIconeTema(tema) {
+  document.getElementById('temaToggle').textContent = tema === 'escuro' ? '☀️' : '🌙';
+}
+function temaEfetivoAtual() {
+  const salvo = document.documentElement.getAttribute('data-tema');
+  if (salvo) return salvo;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'escuro' : 'claro';
+}
+function alternarTema() {
+  const novo = temaEfetivoAtual() === 'escuro' ? 'claro' : 'escuro';
+  localStorage.setItem('tema', novo);
+  document.documentElement.setAttribute('data-tema', novo);
+  aplicarIconeTema(novo);
+}
+const temaSalvo = localStorage.getItem('tema');
+if (temaSalvo) document.documentElement.setAttribute('data-tema', temaSalvo);
+aplicarIconeTema(temaEfetivoAtual());
+document.getElementById('temaToggle').addEventListener('click', alternarTema);
+
 const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alagado: 'Alagado', sem_dado: 'Sem dado' };
 const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alagado: '#e24b4a', sem_dado: '#c9ccd2' };
 

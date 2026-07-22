@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vercel dev",
-    "coletar": "node --env-file=.env scripts/coletar-local.js"
+    "coletar": "node --env-file=.env scripts/coletar-local.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4"

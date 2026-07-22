@@ -9,13 +9,17 @@ Sistema interno que coleta os níveis das 14 estações do feed público de
 api/coletar.js                       rota HTTP protegida por CRON_SECRET; chama lib/coletar.js
 api/painel.js                         estado atual das estações (nível, cota, cm/h, status)
 api/historico.js                      série temporal de uma estação
+api/alertas.js                        últimos alertas (mudança de status), com nome da cidade
 lib/db.js                             conexão com o Neon
 lib/feed.js                           leitura e parse do feed JSON
 lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão)
-lib/previsao.js                       busca a previsão de vazão (Open-Meteo/GloFAS) por coordenada
+lib/previsao.js                       busca vazão (GloFAS) e clima (Open-Meteo) por coordenada
+lib/calculo.js                        funções puras (classificar, cm/h, frescor) — testadas em tests/
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
+tests/                                testes automatizados (node --test, sem dependência nova)
 public/index.html                     painel
+public/bacia.html                     mapa da bacia (Leaflet) + hierarquia dos rios
 schema.sql                            tabelas + carga inicial das 14 estações
 ```
 
@@ -164,6 +168,7 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | --------------------------------------- | ---------------------------------- |
 | `GET /api/painel`                       | todas as estações, estado atual     |
 | `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação    |
+| `GET /api/alertas`                      | últimos 30 alertas (mudança de status) |
 | `GET /api/coletar`                      | força uma coleta (requer o header)  |
 
 ## Notas
@@ -199,6 +204,27 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   `ao_vivo` (≤20 min) / `atrasado` (≤1h) / `obsoleto` (>1h) individualmente —
   mais granular que o `ultimaColeta` global, que só reflete a estação mais
   recente entre todas.
+- **Tema claro/escuro**: segue `prefers-color-scheme` do sistema por padrão;
+  o botão 🌙/☀️ no cabeçalho fixa uma preferência manual em `localStorage`
+  (chave `tema`), que passa a valer independente do sistema.
+- **Histórico de alertas** aparece no painel principal (não só no banco),
+  puxando `/api/alertas` — até 30 mudanças de status mais recentes.
+- **Exportar CSV**: no modal de histórico de uma estação, o botão gera o CSV
+  no navegador a partir dos dados já carregados pro gráfico (`medido_em,
+  nivel_m`) — não é uma rota nova no backend.
+
+## Testes
+
+```bash
+npm test
+```
+
+Usa o test runner nativo do Node (`node --test`), sem dependência nova.
+Cobre as funções puras de `lib/calculo.js` (classificar, cm/h, frescor) e
+`lib/feed.js` (parse do feed) — inclusive o caso do bug real que já
+encontramos (nível sem casa decimal, tipo "1 metros"). Não testa rotas HTTP
+nem acesso ao banco — essas dependem de `DATABASE_URL` e são verificadas
+manualmente (`npm run coletar`, `curl` nos endpoints).
 
 ## Fontes dos dados
 
