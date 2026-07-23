@@ -146,6 +146,18 @@
   .modal-corpo { position: relative; height: 300px; }
   .modal-vazio { text-align: center; color: var(--txt3); font-size: 13px; padding: 60px 20px; }
 
+  .prev-tendencia { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--linha); }
+  .prev-tendencia-titulo { font-size: 11px; color: var(--txt3); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 8px; }
+  .prev-tendencia-vazio { font-size: 12px; color: var(--txt3); text-align: center; padding: 10px 0; }
+  .prev-dias { display: flex; gap: 6px; flex-wrap: wrap; }
+  .prev-dia { flex: 1; min-width: 68px; text-align: center; background: var(--bg); border: 1px solid var(--linha); border-radius: 8px; padding: 8px 6px; }
+  .prev-dia-data { display: block; font-size: 10px; color: var(--txt3); text-transform: capitalize; }
+  .prev-dia-seta { display: block; font-size: 16px; margin: 3px 0; }
+  .prev-dia-seta.subindo { color: #a32d2d; }
+  .prev-dia-seta.descendo { color: #3b6d11; }
+  .prev-dia-seta.estavel, .prev-dia-seta.primeiro { color: var(--txt3); }
+  .prev-dia-valor { display: block; font-size: 10px; color: var(--txt2); font-variant-numeric: tabular-nums; }
+
   /* Modo apresentação: some com controles/seções secundárias e aumenta os
      cards, pra dar pra ler de longe num monitor de sala durante uma cheia. */
   body.apresentacao #ordem,
@@ -277,6 +289,7 @@
       <canvas id="graficoHistorico"></canvas>
       <p class="modal-vazio" id="modalVazio" hidden></p>
     </div>
+    <div class="prev-tendencia" id="prevTendencia"></div>
   </div>
 </div>
 
@@ -715,6 +728,49 @@ function abrirHistorico(slug) {
   document.getElementById('modalOverlay').hidden = false;
   document.body.style.overflow = 'hidden';
   selecionarJanela(24);
+  renderizarTendenciaVazao(slug);
+}
+
+// Tendência de VAZÃO prevista, dia a dia — não é nível em metros (mesma
+// limitação de sempre: converter exigiria a curva-chave de cada estação,
+// que não temos). A seta compara cada dia com o dia anterior da própria
+// previsão; o primeiro dia não tem "anterior" dentro da previsão, então
+// fica neutro em vez de fingir uma tendência.
+function renderizarTendenciaVazao(slug) {
+  const el = document.getElementById('prevTendencia');
+  const estacao = dados && dados.estacoes.find((e) => e.slug === slug);
+  const pontos = estacao && Array.isArray(estacao.previsao)
+    ? estacao.previsao.filter((p) => p.vazaoM3s !== null)
+    : [];
+
+  if (pontos.length === 0) {
+    el.innerHTML = '<p class="prev-tendencia-vazio">Sem previsão de vazão disponível pra essa estação.</p>';
+    return;
+  }
+
+  const dias = pontos.map((p, i) => {
+    let seta = '•', classe = 'primeiro';
+    if (i > 0) {
+      const anterior = pontos[i - 1].vazaoM3s;
+      const variacao = anterior === 0 ? 0 : (p.vazaoM3s - anterior) / anterior;
+      if (variacao > 0.05) { seta = '▲'; classe = 'subindo'; }
+      else if (variacao < -0.05) { seta = '▼'; classe = 'descendo'; }
+      else { seta = '→'; classe = 'estavel'; }
+    }
+
+    const dataFmt = new Date(p.dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' });
+
+    return `<div class="prev-dia">
+      <span class="prev-dia-data">${dataFmt}</span>
+      <span class="prev-dia-seta ${classe}">${seta}</span>
+      <span class="prev-dia-valor">${p.vazaoM3s.toFixed(1)} m³/s</span>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <p class="prev-tendencia-titulo">Tendência de vazão prevista — modelo (Open-Meteo/GloFAS), não é nível em metros</p>
+    <div class="prev-dias">${dias}</div>
+  `;
 }
 
 function fecharHistorico() {
@@ -727,6 +783,7 @@ function fecharHistorico() {
   slugAtual = null;
   pontosAtuais = [];
   document.getElementById('exportarCsv').disabled = true;
+  document.getElementById('prevTendencia').innerHTML = '';
 }
 
 function selecionarJanela(horas) {
