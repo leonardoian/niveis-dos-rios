@@ -140,7 +140,15 @@
     color: var(--txt3); padding: 4px 8px; border-radius: 6px;
   }
   .modal-fechar:hover { background: var(--bg); color: var(--txt); }
-  .modal-janelas { display: flex; gap: 8px; margin: 14px 0; }
+  .modal-janelas { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+  .modal-comparar { max-width: 900px; }
+  .comparar-lista {
+    display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 14px 0;
+    max-height: 110px; overflow-y: auto; padding: 10px 12px;
+    background: var(--bg); border-radius: 8px;
+  }
+  .comparar-item { display: flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+  .comparar-item input { cursor: pointer; }
   .estimativa-cota { font-size: 12px; margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg); }
   .estimativa-cota.subindo { color: #a32d2d; }
   .estimativa-cota:empty { display: none; padding: 0; margin: 0; }
@@ -242,6 +250,7 @@
       <button id="temaToggle" type="button" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">🌙</button>
       <button id="apresentacaoToggle" type="button" title="Modo apresentação (tela cheia)">🖥 Apresentação</button>
       <button id="gerarPdf" type="button" title="Gerar PDF do banner com os níveis">🖨 Gerar PDF</button>
+      <button id="compararToggle" type="button" title="Comparar várias estações no mesmo gráfico">📊 Comparar estações</button>
     </div>
   </header>
 
@@ -295,6 +304,34 @@
       <p class="modal-vazio" id="modalVazio" hidden></p>
     </div>
     <div class="prev-tendencia" id="prevTendencia"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalCompararOverlay" hidden>
+  <div class="modal modal-comparar" role="dialog" aria-modal="true" aria-labelledby="modalCompararTitulo">
+    <div class="modal-topo">
+      <div>
+        <div class="modal-cidade" id="modalCompararTitulo">Comparar estações</div>
+        <div class="modal-rio">Selecione as estações e o período</div>
+      </div>
+      <button class="modal-fechar" id="modalCompararFechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="comparar-lista" id="compararLista"></div>
+    <div class="modal-janelas">
+      <button class="janela-btn comparar-janela-btn" data-horas="24">24h</button>
+      <button class="janela-btn comparar-janela-btn" data-horas="72">3d</button>
+      <button class="janela-btn comparar-janela-btn" data-horas="168">7d</button>
+      <button class="janela-btn comparar-janela-btn" data-horas="720">30d</button>
+      <select id="compararModo" style="margin-left:auto;">
+        <option value="nivel">Nível (m)</option>
+        <option value="percentual">% da cota</option>
+      </select>
+      <button id="compararExportarCsv" type="button" disabled>Exportar CSV</button>
+    </div>
+    <div class="modal-corpo">
+      <canvas id="graficoComparar"></canvas>
+      <p class="modal-vazio" id="compararVazio" hidden></p>
+    </div>
   </div>
 </div>
 
@@ -1002,6 +1039,232 @@ function exportarCsv() {
 }
 
 document.getElementById('exportarCsv').addEventListener('click', exportarCsv);
+
+// ---- Comparar múltiplas estações no mesmo gráfico ----
+// Timestamps de estações diferentes não batem entre si (cada uma mede em
+// horários levemente distintos), então o eixo X usa escala 'linear' com
+// epoch em ms em vez de categorias/labels — assim cada linha respeita seu
+// próprio horário real, sem precisar de um adapter de datas extra pro
+// Chart.js. O modo "% da cota" existe porque comparar metros brutos entre
+// rios diferentes engana: 6m no Jacuí não é a mesma situação que 6m no
+// Guaíba — cada estação tem sua própria cota de inundação.
+const PALETA_COMPARAR = [
+  '#e24b4a', '#2f7bc4', '#639922', '#ba7517', '#7a3fa0', '#1f9e8f', '#c25b9e',
+  '#5a6b8c', '#c48a2f', '#3b8f5f', '#a35d3b', '#4a5fd6', '#8b8f2f', '#c2564b',
+];
+let selecaoComparar = new Set(JSON.parse(localStorage.getItem('compararSelecao') || '[]'));
+let janelaComparar = 24;
+let modoComparar = 'nivel';
+let chartComparar = null;
+let respostasComparar = new Map(); // slug -> resposta de /api/historico
+
+function abrirComparar() {
+  if (!dados) return;
+  document.getElementById('modalCompararOverlay').hidden = false;
+  document.body.style.overflow = 'hidden';
+  renderizarListaComparar();
+  document.querySelectorAll('.comparar-janela-btn').forEach((b) => {
+    b.classList.toggle('ativo', Number(b.dataset.horas) === janelaComparar);
+  });
+  carregarComparar();
+}
+
+function fecharComparar() {
+  document.getElementById('modalCompararOverlay').hidden = true;
+  document.body.style.overflow = '';
+  if (chartComparar) {
+    chartComparar.destroy();
+    chartComparar = null;
+  }
+}
+
+function renderizarListaComparar() {
+  const el = document.getElementById('compararLista');
+  el.innerHTML = dados.estacoes.map((e) => `
+    <label class="comparar-item">
+      <input type="checkbox" value="${e.slug}" ${selecaoComparar.has(e.slug) ? 'checked' : ''}>
+      ${e.cidade}/${e.uf}
+    </label>
+  `).join('');
+  el.querySelectorAll('input[type=checkbox]').forEach((input) => {
+    input.addEventListener('change', () => {
+      if (input.checked) selecaoComparar.add(input.value);
+      else selecaoComparar.delete(input.value);
+      localStorage.setItem('compararSelecao', JSON.stringify([...selecaoComparar]));
+      carregarComparar();
+    });
+  });
+}
+
+function selecionarJanelaComparar(horas) {
+  janelaComparar = horas;
+  document.querySelectorAll('.comparar-janela-btn').forEach((b) => {
+    b.classList.toggle('ativo', Number(b.dataset.horas) === horas);
+  });
+  carregarComparar();
+}
+
+// Contador de geração: se o usuário marcar/desmarcar checkboxes rápido,
+// uma chamada antiga pode responder depois de uma mais nova — só aplica
+// o resultado se ninguém chamou carregarComparar() de novo nesse meio-tempo.
+let comparaChamadaId = 0;
+
+async function carregarComparar() {
+  const idChamada = ++comparaChamadaId;
+  const canvas = document.getElementById('graficoComparar');
+  const vazio = document.getElementById('compararVazio');
+  const slugs = [...selecaoComparar];
+
+  if (slugs.length === 0) {
+    respostasComparar.clear();
+    if (chartComparar) { chartComparar.destroy(); chartComparar = null; }
+    canvas.hidden = true;
+    vazio.hidden = false;
+    vazio.textContent = 'Selecione ao menos uma estação acima.';
+    document.getElementById('compararExportarCsv').disabled = true;
+    return;
+  }
+
+  try {
+    const respostas = await Promise.all(slugs.map((slug) =>
+      fetch(`/api/historico?slug=${encodeURIComponent(slug)}&horas=${janelaComparar}`)
+        .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    ));
+    if (idChamada !== comparaChamadaId) return;
+    respostasComparar.clear();
+    respostas.forEach((resp) => respostasComparar.set(resp.estacao.slug, resp));
+    desenharGraficoComparar();
+  } catch (e) {
+    if (idChamada !== comparaChamadaId) return;
+    if (chartComparar) { chartComparar.destroy(); chartComparar = null; }
+    canvas.hidden = true;
+    vazio.hidden = false;
+    vazio.textContent = 'Não foi possível carregar o histórico: ' + e.message;
+    document.getElementById('compararExportarCsv').disabled = true;
+  }
+}
+
+function desenharGraficoComparar() {
+  const canvas = document.getElementById('graficoComparar');
+  const vazio = document.getElementById('compararVazio');
+
+  if (chartComparar) {
+    chartComparar.destroy();
+    chartComparar = null;
+  }
+
+  const entradas = [...respostasComparar.values()].filter((r) => r.pontos.length >= 2);
+  if (entradas.length === 0) {
+    canvas.hidden = true;
+    vazio.hidden = false;
+    vazio.textContent = 'Nenhuma das estações selecionadas tem leituras suficientes nessa janela.';
+    document.getElementById('compararExportarCsv').disabled = true;
+    return;
+  }
+
+  canvas.hidden = false;
+  vazio.hidden = true;
+  document.getElementById('compararExportarCsv').disabled = false;
+
+  const datasets = entradas.map((resp, i) => {
+    const cor = PALETA_COMPARAR[i % PALETA_COMPARAR.length];
+    const painelInfo = dados.estacoes.find((e) => e.slug === resp.estacao.slug);
+    const label = painelInfo ? `${resp.estacao.cidade}/${painelInfo.uf}` : resp.estacao.cidade;
+    return {
+      label,
+      data: resp.pontos.map((p) => ({
+        x: new Date(p.medidoEm).getTime(),
+        y: modoComparar === 'percentual' ? (p.nivel / resp.estacao.cota) * 100 : p.nivel,
+      })),
+      borderColor: cor,
+      backgroundColor: cor,
+      pointRadius: 0,
+      borderWidth: 1.75,
+      tension: 0.2,
+      fill: false,
+    };
+  });
+
+  chartComparar = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'nearest', intersect: false },
+      scales: {
+        x: {
+          type: 'linear',
+          ticks: {
+            color: '#5f6470',
+            callback: (v) => hora(new Date(v).toISOString()),
+            maxRotation: 0,
+            autoSkip: true,
+          },
+          grid: { display: false },
+        },
+        y: {
+          ticks: {
+            color: '#5f6470',
+            callback: (v) => modoComparar === 'percentual' ? Number(v).toFixed(0) + '%' : Number(v).toFixed(2),
+          },
+          title: { display: true, text: modoComparar === 'percentual' ? '% da cota de inundação' : 'Metros' },
+        },
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            title: (items) => new Date(items[0].parsed.x).toLocaleString('pt-BR'),
+            label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + (modoComparar === 'percentual' ? '%' : ' m'),
+          },
+        },
+      },
+    },
+  });
+}
+
+function exportarCsvComparar() {
+  if (respostasComparar.size === 0) return;
+
+  const linhas = ['estacao,uf,rio,medido_em,nivel_m,percentual_cota'];
+  for (const resp of respostasComparar.values()) {
+    const painelInfo = dados.estacoes.find((e) => e.slug === resp.estacao.slug);
+    const uf = painelInfo ? painelInfo.uf : '';
+    for (const p of resp.pontos) {
+      const pct = ((p.nivel / resp.estacao.cota) * 100).toFixed(1);
+      linhas.push(`${resp.estacao.cidade},${uf},${resp.estacao.rio},${p.medidoEm},${p.nivel},${pct}`);
+    }
+  }
+  const csv = linhas.join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `comparar-estacoes-${janelaComparar}h.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('compararToggle').addEventListener('click', abrirComparar);
+document.getElementById('modalCompararFechar').addEventListener('click', fecharComparar);
+document.getElementById('modalCompararOverlay').addEventListener('click', (ev) => {
+  if (ev.target.id === 'modalCompararOverlay') fecharComparar();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && !document.getElementById('modalCompararOverlay').hidden) fecharComparar();
+});
+document.querySelectorAll('.comparar-janela-btn').forEach((b) => {
+  b.addEventListener('click', () => selecionarJanelaComparar(Number(b.dataset.horas)));
+});
+document.getElementById('compararModo').addEventListener('change', (ev) => {
+  modoComparar = ev.target.value;
+  desenharGraficoComparar();
+});
+document.getElementById('compararExportarCsv').addEventListener('click', exportarCsvComparar);
 </script>
 </body>
 </html>

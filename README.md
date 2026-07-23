@@ -222,7 +222,21 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   vazão de dias — só aparece se a estação estiver subindo e ainda abaixo da
   cota. É estimativa de curto prazo, o texto deixa isso explícito; não tenta
   prever além de poucas horas/dias porque o ritmo de subida de um rio não é
-  constante.
+  constante. Como usa só as duas últimas leituras, pode ficar zerada mesmo
+  com o rio subindo ao longo do dia (flutuação normal do instrumento entre
+  duas leituras consecutivas) — o dado bruto está sempre no `/api/painel`
+  (`velocidadeCmH`, `margem`) pra conferir.
+- **Comparar estações** (botão "📊 Comparar estações" no cabeçalho): abre um
+  modal com checkboxes das 14 estações, mesma janela de tempo do histórico
+  individual (24h/3d/7d/30d), e desenha uma linha por estação selecionada no
+  mesmo gráfico. Tem alternância "Nível (m)" / "% da cota" — comparar metros
+  brutos entre rios diferentes engana (6m no Jacuí ≠ 6m no Guaíba), então o
+  modo percentual normaliza pela `cota_inundacao` de cada estação. Exporta
+  CSV combinado (`estacao,uf,rio,medido_em,nivel_m,percentual_cota`). Cada
+  estação é buscada com sua própria chamada a `/api/historico` (sem rota
+  nova no backend); o eixo X usa escala linear com epoch em ms em vez de
+  categorias, porque os horários de leitura não coincidem exatamente entre
+  estações diferentes. A seleção fica salva em `localStorage`.
 
 ## Testes
 
