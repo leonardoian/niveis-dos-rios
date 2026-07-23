@@ -145,6 +145,22 @@
   .janela-btn.ativo { background: var(--txt); color: var(--bg); border-color: var(--txt); }
   .modal-corpo { position: relative; height: 300px; }
   .modal-vazio { text-align: center; color: var(--txt3); font-size: 13px; padding: 60px 20px; }
+
+  /* Modo apresentação: some com controles/seções secundárias e aumenta os
+     cards, pra dar pra ler de longe num monitor de sala durante uma cheia. */
+  body.apresentacao #ordem,
+  body.apresentacao #atualizar,
+  body.apresentacao .link-bacia,
+  body.apresentacao .secao-titulo,
+  body.apresentacao .lista-alertas,
+  body.apresentacao .rodape-fontes {
+    display: none;
+  }
+  body.apresentacao .kpi strong { font-size: 34px; }
+  body.apresentacao .grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+  body.apresentacao .card { padding: 22px 26px; }
+  body.apresentacao .nivel { font-size: 42px; }
+  body.apresentacao .cidade { font-size: 18px; }
 </style>
 </head>
 <body>
@@ -162,10 +178,11 @@
         <option value="rio">Ordenar por rio</option>
       </select>
       <button id="atualizar">Atualizar</button>
-      <a href="bacia.html">
+      <a class="link-bacia" href="bacia.html">
         <button type="button">Mapa da bacia</button>
       </a>
       <button id="temaToggle" type="button" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">🌙</button>
+      <button id="apresentacaoToggle" type="button" title="Modo apresentação (tela cheia)">🖥 Apresentação</button>
     </div>
   </header>
 
@@ -273,6 +290,44 @@ const temaSalvo = localStorage.getItem('tema');
 if (temaSalvo) document.documentElement.setAttribute('data-tema', temaSalvo);
 aplicarIconeTema(temaEfetivoAtual());
 document.getElementById('temaToggle').addEventListener('click', alternarTema);
+
+// ---- Modo apresentação (tela cheia pra monitor de sala) ----
+function estaApresentando() {
+  return document.body.classList.contains('apresentacao');
+}
+
+async function alternarApresentacao() {
+  const btn = document.getElementById('apresentacaoToggle');
+
+  if (!estaApresentando()) {
+    document.body.classList.add('apresentacao');
+    btn.textContent = '✕ Sair da apresentação';
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch (e) {
+      // Navegador pode bloquear tela cheia (permissão, iframe etc.) — o
+      // modo apresentação (esconder controles, aumentar cards) continua
+      // valendo mesmo sem a tela cheia real.
+    }
+  } else {
+    document.body.classList.remove('apresentacao');
+    btn.textContent = '🖥 Apresentação';
+    if (document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch (e) { /* nada a fazer */ }
+    }
+  }
+}
+
+// Se o usuário sai da tela cheia pelo ESC (não pelo nosso botão), o
+// document.exitFullscreen() nunca é chamado por nós — sincroniza aqui.
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && estaApresentando()) {
+    document.body.classList.remove('apresentacao');
+    document.getElementById('apresentacaoToggle').textContent = '🖥 Apresentação';
+  }
+});
+
+document.getElementById('apresentacaoToggle').addEventListener('click', alternarApresentacao);
 
 let dados = null;
 let timerColeta = null;
