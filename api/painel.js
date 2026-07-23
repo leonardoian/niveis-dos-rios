@@ -28,6 +28,8 @@ export default async function handler(req, res) {
         e.rio,
         e.estacao,
         e.cota_inundacao,
+        e.nivel_cheia_2024,
+        e.data_cheia_2024,
         a.nivel        AS nivel_atual,
         a.medido_em    AS medido_em,
         p.nivel        AS nivel_anterior,
@@ -118,6 +120,10 @@ export default async function handler(req, res) {
         previsao,
         climaHoje,
         frescor: calcularFrescor(r.medido_em),
+        cheia2024: r.nivel_cheia_2024 === null ? null : {
+          nivel: Number(r.nivel_cheia_2024),
+          data: r.data_cheia_2024,
+        },
       };
     });
 

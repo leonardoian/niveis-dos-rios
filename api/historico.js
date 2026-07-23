@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
   try {
     const estacao = await sql`
-      SELECT slug, cidade, rio, estacao, cota_inundacao
+      SELECT slug, cidade, rio, estacao, cota_inundacao, nivel_cheia_2024, data_cheia_2024
       FROM estacoes WHERE slug = ${slug}
     `;
 
@@ -48,6 +48,10 @@ export default async function handler(req, res) {
         rio: estacao[0].rio,
         nome: estacao[0].estacao,
         cota: Number(estacao[0].cota_inundacao),
+      },
+      cheia2024: estacao[0].nivel_cheia_2024 === null ? null : {
+        nivel: Number(estacao[0].nivel_cheia_2024),
+        data: estacao[0].data_cheia_2024,
       },
       janelaHoras: janela,
       pontos: pontos.map((p) => ({

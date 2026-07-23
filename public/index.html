@@ -108,6 +108,7 @@
   .prev-titulo { font-size: 10px; color: var(--txt3); text-transform: uppercase; letter-spacing: .3px; margin-top: 10px; }
   .clima { font-size: 12px; color: var(--txt2); margin-top: 4px; }
   .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
+  .cheia2024 { font-size: 11px; color: var(--txt3); margin-top: 4px; cursor: help; }
   .meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 11px; color: var(--txt3); }
   .frescor { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
   .aviso { background: var(--aviso-bg); border: 1px solid var(--aviso-border); color: var(--aviso-txt); padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
@@ -547,6 +548,17 @@ function hora(iso) {
   });
 }
 
+// Colunas DATE do Postgres podem vir como "2024-05-02" (data simples) ou
+// como timestamp completo "2024-05-02T00:00:00.000Z" (depende do driver do
+// Neon) — normaliza pros 10 primeiros caracteres antes de montar a data,
+// senão concatenar direto vira "Invalid Date" (mesmo bug já visto em
+// renderizarTendenciaVazao).
+function formatarDataSimples(data) {
+  if (!data) return '—';
+  const dataSimples = String(data).slice(0, 10);
+  return new Date(dataSimples + 'T12:00:00').toLocaleDateString('pt-BR');
+}
+
 // Extrapolação linear simples da tendência MEDIDA agora (cm/h) — usada
 // tanto no card quanto no modal de histórico, por isso fica compartilhada.
 // Dois casos: subindo (quanto falta pra atingir a cota) e descendo (quanto
@@ -600,6 +612,19 @@ function card(e) {
   const margem = e.margem === null ? '—'
     : e.margem >= 0 ? e.margem.toFixed(2) + ' m abaixo'
     : Math.abs(e.margem).toFixed(2) + ' m acima';
+
+  // Comparativo com o pico da enchente de maio/2024 — só existe pras
+  // estações onde achamos um registro confiável (ver nota em schema.sql);
+  // fica null (some do card) nas demais em vez de arriscar mostrar um
+  // número errado.
+  let cheia2024Html = '';
+  if (e.cheia2024 && e.nivel !== null && e.cheia2024.nivel > 0) {
+    const diff = e.cheia2024.nivel - e.nivel;
+    const pct = ((e.nivel / e.cheia2024.nivel) * 100).toFixed(0);
+    const diffTexto = diff >= 0 ? diff.toFixed(2) + ' m abaixo' : Math.abs(diff).toFixed(2) + ' m acima';
+    const dataFmt = formatarDataSimples(e.cheia2024.data);
+    cheia2024Html = `<div class="cheia2024" title="Pico da cheia de maio/2024 nesta estação: ${e.cheia2024.nivel.toFixed(2)} m em ${dataFmt}. Fonte: nivelguaiba.com.br.">🌊 ${pct}% do nível da cheia de 2024 (${diffTexto})</div>`;
+  }
 
   const temSerie = Array.isArray(e.serieRecente) && e.serieRecente.length >= 2;
   let spark;
@@ -659,6 +684,7 @@ function card(e) {
       <span>Cota ${e.cota.toFixed(2)} m</span>
       <span>${margem}</span>
     </div>
+    ${cheia2024Html}
     ${previsao}
     <div class="meta"><span class="frescor" style="background:${corFrescor}" title="${tituloFrescor}"></span>${e.estacao || 'Estação não informada'} · ${hora(e.medidoEm)}</div>
   </div>`;
@@ -996,13 +1022,31 @@ function desenharGrafico(resposta) {
   ];
 
   // Maior nível já registrado (toda a história, não só a janela atual) —
-  // dá noção de "isso está perto do pior que já aconteceu?".
+  // dá noção de "isso está perto do pior que já aconteceu?". Vem da nossa
+  // própria tabela leituras, que só existe desde que a coleta começou —
+  // por isso é um dado diferente (e normalmente bem menor) do que a linha
+  // da cheia de 2024 abaixo, que vem de antes da coleta existir.
   if (resposta.recorde) {
     datasets.push({
       label: 'Recorde histórico (' + resposta.recorde.nivel.toFixed(2) + ' m)',
       data: pontos.map(() => resposta.recorde.nivel),
       borderColor: '#7a3fa0',
       borderDash: [2, 3],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: false,
+    });
+  }
+
+  // Pico da cheia de maio/2024 — só existe pras estações com registro
+  // confiável (ver nota em schema.sql); nas demais fica null e a linha
+  // simplesmente não aparece.
+  if (resposta.cheia2024) {
+    datasets.push({
+      label: 'Cheia de maio/2024 (' + resposta.cheia2024.nivel.toFixed(2) + ' m)',
+      data: pontos.map(() => resposta.cheia2024.nivel),
+      borderColor: '#1f9e8f',
+      borderDash: [8, 3],
       borderWidth: 1.5,
       pointRadius: 0,
       fill: false,

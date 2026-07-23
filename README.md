@@ -232,6 +232,21 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   dado bruto está sempre no `/api/painel` (`velocidadeCmH`, `margem`) pra
   conferir. Não exige nada novo do backend — os dois cálculos usam campos
   que o `/api/painel` já retornava.
+- **Comparativo com a cheia de maio/2024** (colunas `nivel_cheia_2024` /
+  `data_cheia_2024` em `estacoes`): mostra "🌊 X% do nível da cheia de 2024"
+  no card e uma linha tracejada extra no gráfico do modal ("Cheia de
+  maio/2024"). Os valores foram extraídos do próprio `nivelguaiba.com.br`
+  (mesma régua/estação já usada na coleta, então comparável direto com o
+  nível atual sem risco de datum diferente) e cruzados com imprensa/SGB
+  pra Porto Alegre, Lajeado e Muçum. Fica `NULL` de propósito em 3
+  estações: **Cachoeira do Sul** e **Encantado** (o próprio site admite
+  não ter registro consolidado pra elas) e **Roca Sales** (o site retorna
+  um "pico" de só 5,32 m em 29/05/2024, mas a cidade foi uma das mais
+  destruídas pela enchente já no início de maio — o número quase certamente
+  reflete uma estação que só entrou em operação depois do auge do
+  desastre, não o pico real; melhor não mostrar do que mostrar errado).
+  Pra ajustar/completar esses valores no futuro, edite a carga inicial em
+  `schema.sql` e rode o script de novo (idempotente).
 - **Comparar estações** (botão "📊 Comparar estações" no cabeçalho): abre um
   modal com checkboxes das 14 estações, mesma janela de tempo do histórico
   individual (24h/3d/7d/30d), e desenha uma linha por estação selecionada no
