@@ -161,6 +161,35 @@
   body.apresentacao .card { padding: 22px 26px; }
   body.apresentacao .nivel { font-size: 42px; }
   body.apresentacao .cidade { font-size: 18px; }
+
+  /* Gerar PDF: usa a impressão nativa do navegador (Ctrl+P / "Salvar como
+     PDF"), sem lib nova. Força tema claro (economiza tinta mesmo no escuro),
+     esconde controles/seções que não fazem sentido numa folha impressa, e
+     configura paisagem pra caber tipo banner. */
+  @media print {
+    :root {
+      --bg: #ffffff !important;
+      --card: #ffffff !important;
+      --linha: #d5d8de !important;
+      --txt: #16181d !important;
+      --txt2: #5f6470 !important;
+      --txt3: #8b909c !important;
+      --barra-fundo: #eceef2 !important;
+    }
+    @page { size: landscape; margin: 10mm; }
+    body { padding: 0; }
+    header .acoes,
+    #proxColeta,
+    #aviso,
+    .secao-titulo,
+    .lista-alertas,
+    .rodape-fontes,
+    .modal-overlay {
+      display: none !important;
+    }
+    .card { break-inside: avoid; box-shadow: none !important; cursor: default; }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  }
 </style>
 </head>
 <body>
@@ -183,6 +212,7 @@
       </a>
       <button id="temaToggle" type="button" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">🌙</button>
       <button id="apresentacaoToggle" type="button" title="Modo apresentação (tela cheia)">🖥 Apresentação</button>
+      <button id="gerarPdf" type="button" title="Gerar PDF (abre a caixa de impressão do navegador)">🖨 Gerar PDF</button>
     </div>
   </header>
 
@@ -328,6 +358,7 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 document.getElementById('apresentacaoToggle').addEventListener('click', alternarApresentacao);
+document.getElementById('gerarPdf').addEventListener('click', () => window.print());
 
 let dados = null;
 let timerColeta = null;
