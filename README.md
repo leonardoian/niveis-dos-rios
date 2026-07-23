@@ -212,6 +212,17 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 - **Exportar CSV**: no modal de histórico de uma estação, o botão gera o CSV
   no navegador a partir dos dados já carregados pro gráfico (`medido_em,
   nivel_m`) — não é uma rota nova no backend.
+- **Recorde histórico** no gráfico de uma estação: `/api/historico` retorna
+  `recorde` (maior nível já registrado, de toda a série — não só a janela
+  aberta), desenhado como uma segunda linha tracejada além da cota.
+- **Chuva prevista** aparece junto da tendência de vazão no modal de
+  histórico (mesmo dado de `previsao`, campo `chuvaMm`).
+- **Estimativa "quanto falta pra cota"** no modal de histórico: extrapolação
+  linear simples da tendência **medida agora** (cm/h), não do modelo de
+  vazão de dias — só aparece se a estação estiver subindo e ainda abaixo da
+  cota. É estimativa de curto prazo, o texto deixa isso explícito; não tenta
+  prever além de poucas horas/dias porque o ritmo de subida de um rio não é
+  constante.
 
 ## Testes
 

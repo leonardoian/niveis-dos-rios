@@ -141,6 +141,9 @@
   }
   .modal-fechar:hover { background: var(--bg); color: var(--txt); }
   .modal-janelas { display: flex; gap: 8px; margin: 14px 0; }
+  .estimativa-cota { font-size: 12px; margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg); }
+  .estimativa-cota.subindo { color: #a32d2d; }
+  .estimativa-cota:empty { display: none; padding: 0; margin: 0; }
   .janela-btn { font-size: 12px; padding: 6px 12px; }
   .janela-btn.ativo { background: var(--txt); color: var(--bg); border-color: var(--txt); }
   .modal-corpo { position: relative; height: 300px; }
@@ -157,6 +160,7 @@
   .prev-dia-seta.descendo { color: #3b6d11; }
   .prev-dia-seta.estavel, .prev-dia-seta.primeiro { color: var(--txt3); }
   .prev-dia-valor { display: block; font-size: 10px; color: var(--txt2); font-variant-numeric: tabular-nums; }
+  .prev-dia-chuva { display: block; font-size: 9px; color: var(--txt3); margin-top: 2px; font-variant-numeric: tabular-nums; }
 
   /* Modo apresentação: some com controles/seções secundárias e aumenta os
      cards, pra dar pra ler de longe num monitor de sala durante uma cheia. */
@@ -278,6 +282,7 @@
       </div>
       <button class="modal-fechar" id="modalFechar" aria-label="Fechar">✕</button>
     </div>
+    <p class="estimativa-cota" id="estimativaCota"></p>
     <div class="modal-janelas">
       <button class="janela-btn" data-horas="24">24h</button>
       <button class="janela-btn" data-horas="72">3d</button>
@@ -729,6 +734,35 @@ function abrirHistorico(slug) {
   document.body.style.overflow = 'hidden';
   selecionarJanela(24);
   renderizarTendenciaVazao(slug);
+  renderizarEstimativaCota(slug);
+}
+
+// "Quanto falta pra cota, no ritmo atual" — extrapolação linear simples da
+// tendência MEDIDA agora (cm/h), não do modelo de vazão de dias. Só faz
+// sentido pra horizonte curto (rio não sobe num ritmo constante por dias),
+// por isso o texto deixa claro que é estimativa, não previsão.
+function formatarHorasEstimativa(horas) {
+  if (horas < 48) return Math.round(horas) + 'h';
+  return (horas / 24).toFixed(1) + ' dias';
+}
+
+function renderizarEstimativaCota(slug) {
+  const el = document.getElementById('estimativaCota');
+  el.className = 'estimativa-cota';
+  el.textContent = '';
+
+  const estacao = dados && dados.estacoes.find((e) => e.slug === slug);
+  if (!estacao || estacao.velocidadeCmH === null || estacao.margem === null) return;
+  if (estacao.velocidadeCmH <= 0) return; // não está subindo, sem ETA
+  if (estacao.margem <= 0) return; // já atingiu/passou a cota
+
+  const horas = (estacao.margem * 100) / estacao.velocidadeCmH;
+  if (!Number.isFinite(horas) || horas <= 0) return;
+
+  el.classList.add('subindo');
+  el.textContent =
+    `⏱ No ritmo atual (${estacao.velocidadeCmH.toFixed(1)} cm/h), atinge a cota em ~${formatarHorasEstimativa(horas)} ` +
+    `— estimativa simples da tendência agora, não é previsão.`;
 }
 
 // Tendência de VAZÃO prevista, dia a dia — não é nível em metros (mesma
@@ -759,11 +793,13 @@ function renderizarTendenciaVazao(slug) {
     }
 
     const dataFmt = new Date(p.dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' });
+    const chuva = p.chuvaMm === null || p.chuvaMm === undefined ? '—' : p.chuvaMm.toFixed(1) + 'mm';
 
     return `<div class="prev-dia">
       <span class="prev-dia-data">${dataFmt}</span>
       <span class="prev-dia-seta ${classe}">${seta}</span>
       <span class="prev-dia-valor">${p.vazaoM3s.toFixed(1)} m³/s</span>
+      <span class="prev-dia-chuva">💧 ${chuva}</span>
     </div>`;
   }).join('');
 
@@ -784,6 +820,8 @@ function fecharHistorico() {
   pontosAtuais = [];
   document.getElementById('exportarCsv').disabled = true;
   document.getElementById('prevTendencia').innerHTML = '';
+  document.getElementById('estimativaCota').textContent = '';
+  document.getElementById('estimativaCota').className = 'estimativa-cota';
 }
 
 function selecionarJanela(horas) {
@@ -849,32 +887,48 @@ function desenharGrafico(resposta) {
   const cor = CORES[estacaoPainel ? estacaoPainel.status : 'sem_dado'];
   const cota = resposta.estacao.cota;
 
+  const datasets = [
+    {
+      label: resposta.estacao.cidade,
+      data: pontos.map((p) => p.nivel),
+      borderColor: cor,
+      backgroundColor: cor,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+      tension: 0.25,
+      fill: false,
+    },
+    {
+      label: 'Cota de inundação (' + cota.toFixed(2) + ' m)',
+      data: pontos.map(() => cota),
+      borderColor: '#8b909c',
+      borderDash: [6, 4],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: false,
+    },
+  ];
+
+  // Maior nível já registrado (toda a história, não só a janela atual) —
+  // dá noção de "isso está perto do pior que já aconteceu?".
+  if (resposta.recorde) {
+    datasets.push({
+      label: 'Recorde histórico (' + resposta.recorde.nivel.toFixed(2) + ' m)',
+      data: pontos.map(() => resposta.recorde.nivel),
+      borderColor: '#7a3fa0',
+      borderDash: [2, 3],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: false,
+    });
+  }
+
   chartInstancia = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
       labels: pontos.map((p) => hora(p.medidoEm)),
-      datasets: [
-        {
-          label: resposta.estacao.cidade,
-          data: pontos.map((p) => p.nivel),
-          borderColor: cor,
-          backgroundColor: cor,
-          pointRadius: 2,
-          pointHoverRadius: 4,
-          borderWidth: 2,
-          tension: 0.25,
-          fill: false,
-        },
-        {
-          label: 'Cota de inundação (' + cota.toFixed(2) + ' m)',
-          data: pontos.map(() => cota),
-          borderColor: '#8b909c',
-          borderDash: [6, 4],
-          borderWidth: 1.5,
-          pointRadius: 0,
-          fill: false,
-        },
-      ],
+      datasets,
     },
     options: {
       responsive: true,

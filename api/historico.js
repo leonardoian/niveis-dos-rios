@@ -29,6 +29,17 @@ export default async function handler(req, res) {
       ORDER BY medido_em ASC
     `;
 
+    // Maior nível já registrado pra essa estação, em toda a série histórica
+    // (não só na janela pedida) — usado pra desenhar a linha de recorde no
+    // gráfico, dando noção de "isso está perto do pior que já aconteceu?".
+    const recorde = await sql`
+      SELECT nivel, medido_em
+      FROM leituras
+      WHERE slug = ${slug}
+      ORDER BY nivel DESC
+      LIMIT 1
+    `;
+
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
     return res.status(200).json({
       estacao: {
@@ -43,6 +54,9 @@ export default async function handler(req, res) {
         nivel: Number(p.nivel),
         medidoEm: p.medido_em,
       })),
+      recorde: recorde.length > 0
+        ? { nivel: Number(recorde[0].nivel), medidoEm: recorde[0].medido_em }
+        : null,
     });
   } catch (erro) {
     console.error('Falha ao buscar histórico:', erro);
