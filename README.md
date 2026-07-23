@@ -217,15 +217,21 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   aberta), desenhado como uma segunda linha tracejada além da cota.
 - **Chuva prevista** aparece junto da tendência de vazão no modal de
   histórico (mesmo dado de `previsao`, campo `chuvaMm`).
-- **Estimativa "quanto falta pra cota"** no modal de histórico: extrapolação
-  linear simples da tendência **medida agora** (cm/h), não do modelo de
-  vazão de dias — só aparece se a estação estiver subindo e ainda abaixo da
-  cota. É estimativa de curto prazo, o texto deixa isso explícito; não tenta
-  prever além de poucas horas/dias porque o ritmo de subida de um rio não é
-  constante. Como usa só as duas últimas leituras, pode ficar zerada mesmo
-  com o rio subindo ao longo do dia (flutuação normal do instrumento entre
-  duas leituras consecutivas) — o dado bruto está sempre no `/api/painel`
-  (`velocidadeCmH`, `margem`) pra conferir.
+- **Estimativa "quanto falta pra cota" / "volta ao normal"** (`calcularEtaCota`
+  em `public/index.html`, usada tanto no card quanto no modal de histórico):
+  extrapolação linear simples da tendência **medida agora** (cm/h), não do
+  modelo de vazão de dias. Dois casos, mutuamente exclusivos:
+  - subindo e abaixo da cota → "⏱ atinge a cota em ~Xh";
+  - descendo e ainda acima do limiar de status "normal" (60% da cota, mesmo
+    limiar já usado em `classificar`) → "↩ volta ao normal em ~Xh".
+  Ambos são estimativa de curto prazo, o texto (e o `title` no card) deixa
+  isso explícito; não tenta prever além de poucas horas/dias porque o ritmo
+  de subida/descida de um rio não é constante. Como usa só as duas últimas
+  leituras, pode ficar zerada mesmo com uma tendência clara ao longo do dia
+  (flutuação normal do instrumento entre duas leituras consecutivas) — o
+  dado bruto está sempre no `/api/painel` (`velocidadeCmH`, `margem`) pra
+  conferir. Não exige nada novo do backend — os dois cálculos usam campos
+  que o `/api/painel` já retornava.
 - **Comparar estações** (botão "📊 Comparar estações" no cabeçalho): abre um
   modal com checkboxes das 14 estações, mesma janela de tempo do histórico
   individual (24h/3d/7d/30d), e desenha uma linha por estação selecionada no

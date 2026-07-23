@@ -97,6 +97,9 @@
   .vel { font-size: 13px; color: var(--txt2); margin-top: 2px; }
   .vel.sobe { color: #a32d2d; }
   .vel.desce { color: #3b6d11; }
+  .eta { font-size: 12px; margin-top: 3px; }
+  .eta.subindo { color: #a32d2d; }
+  .eta.descendo { color: #3b6d11; }
   .barra { height: 6px; border-radius: 3px; background: var(--barra-fundo); overflow: hidden; margin: 14px 0 6px; }
   .barra i { display: block; height: 100%; }
   .spark-wrap { height: 32px; margin: 10px 0 2px; }
@@ -151,6 +154,7 @@
   .comparar-item input { cursor: pointer; }
   .estimativa-cota { font-size: 12px; margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg); }
   .estimativa-cota.subindo { color: #a32d2d; }
+  .estimativa-cota.descendo { color: #3b6d11; }
   .estimativa-cota:empty { display: none; padding: 0; margin: 0; }
   .janela-btn { font-size: 12px; padding: 6px 12px; }
   .janela-btn.ativo { background: var(--txt); color: var(--bg); border-color: var(--txt); }
@@ -543,6 +547,35 @@ function hora(iso) {
   });
 }
 
+// Extrapolação linear simples da tendência MEDIDA agora (cm/h) — usada
+// tanto no card quanto no modal de histórico, por isso fica compartilhada.
+// Dois casos: subindo (quanto falta pra atingir a cota) e descendo (quanto
+// falta pra voltar ao "normal", usando o mesmo limiar de 60% da cota que já
+// define o status "normal" no resto do app). Só usa as duas últimas
+// leituras, então é sensível a ruído — por isso o texto sempre deixa claro
+// que é estimativa, não previsão.
+function calcularEtaCota(e) {
+  if (e.velocidadeCmH === null || e.margem === null || e.nivel === null || !e.cota) return null;
+
+  if (e.velocidadeCmH > 0) {
+    if (e.margem <= 0) return null; // já atingiu/passou a cota
+    const horas = (e.margem * 100) / e.velocidadeCmH;
+    if (!Number.isFinite(horas) || horas <= 0) return null;
+    return { classe: 'subindo', horas, velocidadeCmH: e.velocidadeCmH };
+  }
+
+  if (e.velocidadeCmH < 0) {
+    if (e.percentualCota === null || e.percentualCota < 60) return null; // já está normal
+    const nivelNormal = e.cota * 0.6;
+    const margemAteNormal = e.nivel - nivelNormal;
+    const horas = (margemAteNormal * 100) / Math.abs(e.velocidadeCmH);
+    if (!Number.isFinite(horas) || horas <= 0) return null;
+    return { classe: 'descendo', horas, velocidadeCmH: e.velocidadeCmH };
+  }
+
+  return null;
+}
+
 function card(e) {
   const pct = e.percentualCota === null ? 0 : Math.min(100, e.percentualCota);
   const cor = CORES[e.status];
@@ -553,6 +586,15 @@ function card(e) {
     const cls = e.velocidadeCmH > 0 ? 'sobe' : e.velocidadeCmH < 0 ? 'desce' : '';
     const seta = e.velocidadeCmH > 0 ? '▲' : e.velocidadeCmH < 0 ? '▼' : '■';
     vel = `<p class="vel ${cls}">${seta} ${Math.abs(e.velocidadeCmH).toFixed(1)} cm/h</p>`;
+  }
+
+  let etaHtml = '';
+  const eta = calcularEtaCota(e);
+  if (eta) {
+    const texto = eta.classe === 'subindo'
+      ? `⏱ atinge a cota em ~${formatarHorasEstimativa(eta.horas)}`
+      : `↩ volta ao normal em ~${formatarHorasEstimativa(eta.horas)}`;
+    etaHtml = `<p class="eta ${eta.classe}" title="Estimativa simples da tendência medida agora (últimas leituras), não é previsão.">${texto}</p>`;
   }
 
   const margem = e.margem === null ? '—'
@@ -610,6 +652,7 @@ function card(e) {
     ${clima}
     <p class="nivel">${nivel}<small> m</small></p>
     ${vel}
+    ${etaHtml}
     ${spark}
     <div class="barra"><i style="width:${pct}%;background:${cor}"></i></div>
     <div class="rodape">
@@ -789,16 +832,15 @@ function renderizarEstimativaCota(slug) {
   el.textContent = '';
 
   const estacao = dados && dados.estacoes.find((e) => e.slug === slug);
-  if (!estacao || estacao.velocidadeCmH === null || estacao.margem === null) return;
-  if (estacao.velocidadeCmH <= 0) return; // não está subindo, sem ETA
-  if (estacao.margem <= 0) return; // já atingiu/passou a cota
+  if (!estacao) return;
 
-  const horas = (estacao.margem * 100) / estacao.velocidadeCmH;
-  if (!Number.isFinite(horas) || horas <= 0) return;
+  const eta = calcularEtaCota(estacao);
+  if (!eta) return;
 
-  el.classList.add('subindo');
+  el.classList.add(eta.classe);
+  const acao = eta.classe === 'subindo' ? 'atinge a cota' : 'volta ao normal';
   el.textContent =
-    `⏱ No ritmo atual (${estacao.velocidadeCmH.toFixed(1)} cm/h), atinge a cota em ~${formatarHorasEstimativa(horas)} ` +
+    `⏱ No ritmo atual (${Math.abs(eta.velocidadeCmH).toFixed(1)} cm/h), ${acao} em ~${formatarHorasEstimativa(eta.horas)} ` +
     `— estimativa simples da tendência agora, não é previsão.`;
 }
 
