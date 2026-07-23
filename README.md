@@ -180,6 +180,16 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 - **Duplicatas**: a constraint `UNIQUE (slug, medido_em)` faz o cron ser
   idempotente — se o feed não atualizou, nada é inserido.
 - **Status**: normal < 60% da cota · atenção ≥ 60% · alerta ≥ 80% · alagado ≥ 100%.
+- **Mobile**: `header .acoes` (os botões do topo) e `header` de `bacia.html`
+  usam `flex-wrap: wrap` — sem isso, o navegador no celular expandia a
+  viewport inteira da página pra caber os 7 botões numa linha só (bug real,
+  achado testando com Playwright em viewport de iPhone), o que empurrava a
+  página inteira, inclusive os modais, pra fora da tela com scroll
+  horizontal. `body`/`html` também têm `overflow-x: hidden` como rede de
+  segurança contra qualquer elemento futuro que vaze da largura da tela.
+  Há um `@media (max-width: 600px)` aumentando o alvo de toque dos botões
+  (~36px → ~43px, perto da recomendação de 44px) e reduzindo a margem dos
+  modais nessa faixa de largura.
 - O agendamento da coleta é externo — o Vercel não agenda nada neste projeto,
   já que o plano Hobby só libera cron nativo 1x/dia. Recomendado rodar as
   **duas** fontes em paralelo, com horários intercalados: o GitHub Actions
