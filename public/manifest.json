@@ -1,0 +1,17 @@
+{
+  "name": "Níveis dos Rios — Bacia do Guaíba",
+  "short_name": "Níveis dos Rios",
+  "description": "Monitoramento interno dos níveis dos rios da Bacia do Guaíba/RS. Não é sistema oficial de alerta — em emergência, acione a Defesa Civil (199) ou os Bombeiros (193).",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#1c5f8a",
+  "orientation": "portrait-primary",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -20,6 +20,8 @@ scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, Gi
 tests/                                testes automatizados (node --test, sem dependência nova)
 public/index.html                     painel
 public/bacia.html                     mapa da bacia (Leaflet) + hierarquia dos rios
+public/manifest.json                  PWA — nome, cores, ícones (pra "adicionar à tela inicial")
+public/icons/                         ícones do PWA (gerados, ver nota abaixo)
 schema.sql                            tabelas + carga inicial das 14 estações
 ```
 
@@ -190,6 +192,17 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   Há um `@media (max-width: 600px)` aumentando o alvo de toque dos botões
   (~36px → ~43px, perto da recomendação de 44px) e reduzindo a margem dos
   modais nessa faixa de largura.
+- **PWA ("adicionar à tela inicial")**: `public/manifest.json` + `public/icons/`
+  (ícone "gauge de nível" gerado — não é foto nem logo, é um desenho simples
+  em SVG rasterizado) permitem instalar o painel como app no celular, com
+  ícone e nome próprios em vez de aba do navegador. `index.html` e
+  `bacia.html` linkam o mesmo manifest + tags da Apple (`apple-touch-icon`,
+  `apple-mobile-web-app-*`), já que o iOS não segue o manifest sozinho pra
+  isso. **De propósito não tem service worker** — então funciona bem pra
+  "Adicionar à tela de início" (menu do navegador, manual) em Android e
+  iOS, mas o banner automático "Instalar app" do Chrome/Android (que exige
+  service worker) não deve aparecer sozinho. Cache offline ficaria pra uma
+  extensão futura, se for necessário.
 - O agendamento da coleta é externo — o Vercel não agenda nada neste projeto,
   já que o plano Hobby só libera cron nativo 1x/dia. Recomendado rodar as
   **duas** fontes em paralelo, com horários intercalados: o GitHub Actions
