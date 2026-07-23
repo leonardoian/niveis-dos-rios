@@ -190,6 +190,21 @@
     .card { break-inside: avoid; box-shadow: none !important; cursor: default; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   }
+
+  /* Gerar PDF (botão): captura o banner via html2canvas + monta o PDF com
+     jsPDF, em vez de window.print() — no celular, a caixa de impressão do
+     sistema é inconsistente entre navegador/SO; assim funciona igual em
+     qualquer aparelho, baixando o arquivo direto (mesmo esquema do CSV).
+     Reaproveita a mesma lista de "esconder" do @media print acima, só que
+     como classe controlada por JS em vez de media query. */
+  body.gerando-pdf header .acoes,
+  body.gerando-pdf #proxColeta,
+  body.gerando-pdf #aviso,
+  body.gerando-pdf .secao-titulo,
+  body.gerando-pdf .lista-alertas,
+  body.gerando-pdf .rodape-fontes {
+    display: none !important;
+  }
 </style>
 </head>
 <body>
@@ -212,7 +227,7 @@
       </a>
       <button id="temaToggle" type="button" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">🌙</button>
       <button id="apresentacaoToggle" type="button" title="Modo apresentação (tela cheia)">🖥 Apresentação</button>
-      <button id="gerarPdf" type="button" title="Gerar PDF (abre a caixa de impressão do navegador)">🖨 Gerar PDF</button>
+      <button id="gerarPdf" type="button" title="Gerar PDF do banner com os níveis">🖨 Gerar PDF</button>
     </div>
   </header>
 
@@ -268,6 +283,8 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alagado: 'Alagado', sem_dado: 'Sem dado' };
 const CORES   = { normal: '#639922', atencao: '#ba7517', alerta: '#ef9f27', alagado: '#e24b4a', sem_dado: '#c9ccd2' };
@@ -358,7 +375,56 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 document.getElementById('apresentacaoToggle').addEventListener('click', alternarApresentacao);
-document.getElementById('gerarPdf').addEventListener('click', () => window.print());
+
+// ---- Gerar PDF (captura + jsPDF, funciona igual em desktop e celular) ----
+async function gerarPdf() {
+  const btn = document.getElementById('gerarPdf');
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Gerando PDF…';
+  document.body.classList.add('gerando-pdf');
+
+  try {
+    const alvo = document.querySelector('.wrap');
+    const corFundo = getComputedStyle(document.body).backgroundColor || '#ffffff';
+    const canvas = await html2canvas(alvo, { scale: 2, backgroundColor: corFundo, useCORS: true });
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = pdf.internal.pageSize.getHeight();
+    const imgWidth = pdfWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const imgData = canvas.toDataURL('image/png');
+
+    // Imagem mais alta que uma página: repete em páginas seguintes, cada
+    // uma mostrando um pedaço diferente (deslocando a posição Y pra cima).
+    let alturaRestante = imgHeight;
+    let posicaoY = 0;
+
+    pdf.addImage(imgData, 'PNG', 0, posicaoY, imgWidth, imgHeight);
+    alturaRestante -= pdfHeight;
+
+    while (alturaRestante > 0) {
+      posicaoY = alturaRestante - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, posicaoY, imgWidth, imgHeight);
+      alturaRestante -= pdfHeight;
+    }
+
+    const hoje = new Date().toISOString().slice(0, 10);
+    pdf.save(`niveis-dos-rios-${hoje}.pdf`);
+  } catch (e) {
+    document.getElementById('aviso').innerHTML =
+      '<div class="aviso">Não foi possível gerar o PDF: ' + e.message + '</div>';
+  } finally {
+    document.body.classList.remove('gerando-pdf');
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+}
+
+document.getElementById('gerarPdf').addEventListener('click', gerarPdf);
 
 let dados = null;
 let timerColeta = null;
