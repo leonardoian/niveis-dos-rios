@@ -162,6 +162,19 @@
   body.apresentacao .nivel { font-size: 42px; }
   body.apresentacao .cidade { font-size: 18px; }
 
+  /* Gerar PDF (botão): esconde controles/seções que não fazem parte do
+     banner antes de tirar a "foto" com html2canvas. */
+  body.gerando-pdf header .acoes,
+  body.gerando-pdf #proxColeta,
+  body.gerando-pdf #aviso,
+  body.gerando-pdf .secao-titulo,
+  body.gerando-pdf .lista-alertas,
+  body.gerando-pdf .rodape-fontes {
+    display: none !important;
+  }
+
+  /* @media print continua disponível como bônus pra quem preferir Ctrl+P
+     manual — não é mais o que o botão "Gerar PDF" usa. */
   /* Gerar PDF: usa a impressão nativa do navegador (Ctrl+P / "Salvar como
      PDF"), sem lib nova. Força tema claro (economiza tinta mesmo no escuro),
      esconde controles/seções que não fazem sentido numa folha impressa, e
@@ -268,6 +281,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 const ROTULOS = { normal: 'Normal', atencao: 'Atenção', alerta: 'Alerta', alagado: 'Alagado', sem_dado: 'Sem dado' };
@@ -360,127 +374,47 @@ document.addEventListener('fullscreenchange', () => {
 
 document.getElementById('apresentacaoToggle').addEventListener('click', alternarApresentacao);
 
-// ---- Gerar PDF (banner de uma página, retrato) ----
-// Desenhado direto no jsPDF (texto/linhas), não é uma "foto" da tela — por
-// isso cabe tudo numa página só, previsível, e funciona igual em qualquer
-// aparelho (baixa o arquivo direto, sem depender da impressão do sistema).
-const CORES_PDF = {
-  normal: [99, 153, 34], atencao: [186, 117, 23], alerta: [239, 159, 39],
-  alagado: [226, 75, 74], sem_dado: [140, 144, 152],
-};
-
-function gerarPdf() {
+// ---- Gerar PDF (banner de uma página, visual igual aos cards) ----
+// Tira uma "foto" do painel (html2canvas) e encolhe pra caber inteira numa
+// página só (em vez de imprimir em tamanho real e cortar em várias páginas)
+// — mantém as cores/bordas/sparklines reais dos cards, só menor.
+async function gerarPdf() {
   const btn = document.getElementById('gerarPdf');
-  if (!dados) return;
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Gerando PDF…';
+  document.body.classList.add('gerando-pdf');
 
   try {
+    const alvo = document.querySelector('.wrap');
+    const corFundo = getComputedStyle(document.body).backgroundColor || '#ffffff';
+    const canvas = await html2canvas(alvo, { scale: 2, backgroundColor: corFundo, useCORS: true });
+
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p', 'mm', 'a4');
-    const margem = 15;
-    const larguraUtil = pdf.internal.pageSize.getWidth() - margem * 2;
-    let y = margem;
+    const margem = 8;
+    const larguraDisponivel = pdf.internal.pageSize.getWidth() - margem * 2;
+    const alturaDisponivel = pdf.internal.pageSize.getHeight() - margem * 2;
 
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(16);
-    pdf.setTextColor(20);
-    pdf.text('Níveis dos rios — Bacia do Guaíba', margem, y);
-    y += 7;
+    // Encolhe mantendo a proporção, pelo lado que for mais restritivo
+    // (largura ou altura), pra caber tudo numa página só.
+    const escala = Math.min(larguraDisponivel / canvas.width, alturaDisponivel / canvas.height);
+    const imgWidth = canvas.width * escala;
+    const imgHeight = canvas.height * escala;
+    const x = margem + (larguraDisponivel - imgWidth) / 2;
+    const y = margem + (alturaDisponivel - imgHeight) / 2;
 
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(10);
-    pdf.setTextColor(110);
-    pdf.text(`${dados.estacoes.length} estações · atualizado ${hora(dados.atualizadoEm)}`, margem, y);
-    y += 7;
-
-    pdf.setFontSize(10);
-    pdf.setTextColor(60);
-    pdf.text(
-      `Em alerta: ${dados.resumo.emAlerta}    Acima da cota: ${dados.resumo.acimaDaCota}    Subindo: ${dados.resumo.subindo}`,
-      margem, y
-    );
-    y += 6;
-
-    pdf.setDrawColor(220);
-    pdf.line(margem, y, margem + larguraUtil, y);
-    y += 7;
-
-    // Colunas (mm a partir da margem esquerda) — largura testada pra caber
-    // o nome mais longo ("São Sebastião do Caí/RS") sem estourar a página.
-    const colCidade = margem;
-    const colRio = margem + 52;
-    const colNivel = margem + 94;
-    const colStatus = margem + 116;
-    const colCota = margem + 140;
-    const colTend = margem + 163;
-
-    pdf.setFontSize(8);
-    pdf.setTextColor(140);
-    pdf.text('CIDADE', colCidade, y);
-    pdf.text('RIO', colRio, y);
-    pdf.text('NÍVEL', colNivel, y);
-    pdf.text('STATUS', colStatus, y);
-    pdf.text('COTA', colCota, y);
-    pdf.text('TEND.', colTend, y);
-    y += 5;
-
-    const alturaLinha = 11;
-    const lista = [...dados.estacoes].sort((a, b) => (b.percentualCota ?? -1) - (a.percentualCota ?? -1));
-
-    lista.forEach((e, i) => {
-      if (i % 2 === 0) {
-        pdf.setFillColor(247, 248, 249);
-        pdf.rect(margem - 2, y - 4.5, larguraUtil + 4, alturaLinha, 'F');
-      }
-
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(10);
-      pdf.setTextColor(25);
-      pdf.text(`${e.cidade}/${e.uf}`, colCidade, y);
-
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(8.5);
-      pdf.setTextColor(100);
-      pdf.text(e.rio, colRio, y, { maxWidth: 40 });
-
-      pdf.setFontSize(10);
-      pdf.setTextColor(25);
-      pdf.text(e.nivel === null ? '—' : e.nivel.toFixed(2) + ' m', colNivel, y);
-
-      const corStatus = CORES_PDF[e.status] || CORES_PDF.sem_dado;
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(9);
-      pdf.setTextColor(...corStatus);
-      pdf.text(ROTULOS[e.status], colStatus, y);
-
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(8.5);
-      pdf.setTextColor(100);
-      pdf.text(e.cota.toFixed(2) + ' m', colCota, y);
-
-      const tend = e.velocidadeCmH === null ? '—' : (e.velocidadeCmH >= 0 ? '+' : '') + e.velocidadeCmH.toFixed(1);
-      pdf.setTextColor(25);
-      pdf.text(tend, colTend, y);
-
-      y += alturaLinha;
-    });
-
-    y += 4;
-    pdf.setDrawColor(220);
-    pdf.line(margem, y, margem + larguraUtil, y);
-    y += 6;
-
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(7.5);
-    pdf.setTextColor(140);
-    pdf.text('Não é sistema oficial de alerta. Emergência: Defesa Civil 199 · Bombeiros 193.', margem, y);
-    y += 4;
-    pdf.text('Dados via nivelguaiba.com.br, telemetria pública da SGB/CPRM e da ANA. Uso interno.', margem, y);
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', x, y, imgWidth, imgHeight);
 
     const hoje = new Date().toISOString().slice(0, 10);
     pdf.save(`niveis-dos-rios-${hoje}.pdf`);
   } catch (e) {
     document.getElementById('aviso').innerHTML =
       '<div class="aviso">Não foi possível gerar o PDF: ' + e.message + '</div>';
+  } finally {
+    document.body.classList.remove('gerando-pdf');
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
   }
 }
 
