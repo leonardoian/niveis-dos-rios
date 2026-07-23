@@ -792,7 +792,13 @@ function renderizarTendenciaVazao(slug) {
       else { seta = '→'; classe = 'estavel'; }
     }
 
-    const dataFmt = new Date(p.dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' });
+    // p.dia pode vir como "2026-07-23" (data simples) ou como timestamp
+    // completo "2026-07-23T00:00:00.000Z" (depende de como o driver do
+    // Neon serializa a coluna DATE) — normaliza pros 10 primeiros
+    // caracteres antes de montar a data, senão concatenar direto vira
+    // "...ZT12:00:00", que o Date() não entende (virava "Invalid Date").
+    const diaSimples = String(p.dia).slice(0, 10);
+    const dataFmt = new Date(diaSimples + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' });
     const chuva = p.chuvaMm === null || p.chuvaMm === undefined ? '—' : p.chuvaMm.toFixed(1) + 'mm';
 
     return `<div class="prev-dia">
