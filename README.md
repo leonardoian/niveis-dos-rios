@@ -213,16 +213,22 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   sem chave, buscada por coordenada (`lat`/`lon` em `estacoes`). É **vazão em
   m³/s, não nível em metros** — não dá pra converter uma na outra sem a
   curva-chave de cada estação, que não temos, então nunca é comparada com
-  `cota_inundacao`. Atualizada no máximo 1x/dia por estação (a API do
-  Open-Meteo só atualiza a previsão nessa cadência); uma falha na previsão
-  não derruba a coleta de nível. Em rios largos como o Guaíba a grade de 5km
-  do modelo pode não acertar o canal certo — os números saem baixos demais
-  nesse caso, é limitação da fonte, não bug.
+  `cota_inundacao`. Atualizada no máximo 1x a cada 6h (~4x/dia) por estação —
+  **não** é porque a Open-Meteo só atualiza a previsão nessa cadência (o
+  modelo dela muda várias vezes ao dia); é só pra não bater a API a cada
+  15 min de coleta sem necessidade. Uma falha na previsão não derruba a
+  coleta de nível. Em rios largos como o Guaíba a grade de 5km do modelo
+  pode não acertar o canal certo — os números saem baixos demais nesse
+  caso, é limitação da fonte, não bug.
 - **Clima previsto** (`buscarClima` em `lib/previsao.js`) vem da API padrão do
-  Open-Meteo, mesma cadência e mesma linha de `previsoes` da vazão (dia +
-  temperatura máx/mín + chuva prevista + condição). As duas chamadas são
-  independentes (`Promise.allSettled`): se uma falhar, a outra ainda grava a
-  parte dela, por isso as colunas são anuláveis e o `INSERT` usa `COALESCE`.
+  Open-Meteo, mesma cadência (~4x/dia) e mesma linha de `previsoes` da vazão
+  (dia + temperatura máx/mín + chuva prevista + condição). As duas chamadas
+  são independentes (`Promise.allSettled`): se uma falhar, a outra ainda
+  grava a parte dela, por isso as colunas são anuláveis e o `INSERT` usa
+  `COALESCE`. Como a atualização não é instantânea, o que está salvo pode
+  divergir um pouco do que a Open-Meteo mostra numa consulta ao vivo,
+  principalmente nos dias mais distantes da previsão de 7 dias — é o
+  trade-off de não bater a API a cada coleta.
 - **Frescor por leitura** (`frescor` em cada estação do `/api/painel`) marca
   `ao_vivo` (≤20 min) / `atrasado` (≤1h) / `obsoleto` (>1h) individualmente —
   mais granular que o `ultimaColeta` global, que só reflete a estação mais
