@@ -1,5 +1,5 @@
 import { sql } from '../lib/db.js';
-import { classificar, calcularVelocidade, calcularFrescor } from '../lib/calculo.js';
+import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h } from '../lib/calculo.js';
 
 // Retorna o estado atual de todas as estações, no formato que o painel consome.
 // A velocidade (cm/h) é calculada aqui a partir das duas últimas leituras —
@@ -66,6 +66,22 @@ export default async function handler(req, res) {
       seriePorSlug.get(p.slug).push({ nivel: Number(p.nivel), medidoEm: p.medido_em });
     }
 
+    // Leitura mais recente que já tem PELO MENOS 24h — referência pro KPI
+    // "maior subida em 24h". Não interpola nem pega a leitura mais próxima
+    // de qualquer lado: se a estação não tem nenhuma leitura com 24h+ (ex.:
+    // estação nova), fica sem referência e a variação vira null — em vez de
+    // fingir uma janela de 24h que não temos.
+    const referencia24hBruta = await sql`
+      SELECT DISTINCT ON (slug) slug, nivel
+      FROM leituras
+      WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
+        AND medido_em <= NOW() - INTERVAL '24 hours'
+      ORDER BY slug, medido_em DESC
+    `;
+    const referencia24hPorSlug = new Map(
+      referencia24hBruta.map((r) => [r.slug, Number(r.nivel)])
+    );
+
     // Previsão de vazão (m³/s, dado à parte do nível — ver lib/previsao.js) e
     // clima dos próximos dias.
     const previsaoBruta = await sql`
@@ -120,6 +136,7 @@ export default async function handler(req, res) {
         previsao,
         climaHoje,
         frescor: calcularFrescor(r.medido_em),
+        variacao24hCm: calcularVariacao24h(nivel, referencia24hPorSlug.get(r.slug) ?? null),
         cheia2024: r.nivel_cheia_2024 === null ? null : {
           nivel: Number(r.nivel_cheia_2024),
           data: r.data_cheia_2024,

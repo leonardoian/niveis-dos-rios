@@ -82,6 +82,8 @@
   button:disabled { opacity: .5; cursor: not-allowed; }
   button:disabled:hover { background: var(--card); }
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .filtro-input { width: 100%; max-width: 320px; margin-bottom: 14px; }
+  .filtro-vazio { color: var(--txt3); font-size: 13px; padding: 20px 0; text-align: center; }
   .kpi { background: var(--card); border: 1px solid var(--linha); border-radius: 10px; padding: 14px 16px; }
   .kpi span { display: block; font-size: 12px; color: var(--txt2); }
   .kpi strong { display: block; font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
@@ -94,6 +96,12 @@
   .card.alagado { border-color: #e24b4a; }
   .card.alerta  { border-color: #ef9f27; }
   .topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .topo-acoes { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .btn-compartilhar {
+    font-size: 12px; padding: 2px 7px; border: 1px solid var(--linha); border-radius: 6px;
+    background: var(--card); color: var(--txt2); cursor: pointer; line-height: 1.6;
+  }
+  .btn-compartilhar:hover { background: var(--bg); }
   .cidade { font-size: 15px; font-weight: 600; }
   .rio { font-size: 13px; color: var(--txt2); margin-top: 1px; }
   .tag { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; white-space: nowrap; text-transform: uppercase; letter-spacing: .3px; }
@@ -163,6 +171,10 @@
   }
   .comparar-item { display: flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
   .comparar-item input { cursor: pointer; }
+  .ajuda-lista { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; font-size: 13px; color: var(--txt2); line-height: 1.5; }
+  .ajuda-item b { color: var(--txt); }
+  .ajuda-item .tag { margin: 0 2px; }
+  .ajuda-item .frescor { margin-right: 2px; }
   .estimativa-cota { font-size: 12px; margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg); }
   .estimativa-cota.subindo { color: #a32d2d; }
   .estimativa-cota.descendo { color: #3b6d11; }
@@ -275,6 +287,7 @@
       <button id="apresentacaoToggle" type="button" title="Modo apresentação (tela cheia)">🖥 Apresentação</button>
       <button id="gerarPdf" type="button" title="Gerar PDF do banner com os níveis">🖨 Gerar PDF</button>
       <button id="compararToggle" type="button" title="Comparar várias estações no mesmo gráfico">📊 Comparar estações</button>
+      <button id="ajudaToggle" type="button" title="O que significa cada ícone e cor">❓ Ajuda</button>
     </div>
   </header>
 
@@ -285,8 +298,11 @@
     <div class="kpi"><span>Acima da cota</span><strong id="k-alagado">—</strong></div>
     <div class="kpi"><span>Subindo</span><strong id="k-subindo">—</strong></div>
     <div class="kpi"><span>Guaíba / Porto Alegre</span><strong id="k-poa">—</strong></div>
+    <div class="kpi"><span title="Entre as estações com leitura de ~24h atrás disponível">Maior subida 24h</span><strong id="k-subida24h">—</strong></div>
   </div>
 
+  <input type="search" id="filtroEstacao" class="filtro-input" placeholder="Buscar por cidade, rio ou UF…" aria-label="Buscar estação">
+  <p class="filtro-vazio" id="filtroVazio" hidden>Nenhuma estação encontrada.</p>
   <div class="grid" id="grid"></div>
 
   <h2 class="secao-titulo">Histórico de alertas recentes</h2>
@@ -321,7 +337,8 @@
       <button class="janela-btn" data-horas="72">3d</button>
       <button class="janela-btn" data-horas="168">7d</button>
       <button class="janela-btn" data-horas="720">30d</button>
-      <button id="exportarCsv" type="button" style="margin-left:auto;" disabled>Exportar CSV</button>
+      <button id="modalCompartilhar" type="button" style="margin-left:auto;">📤 Compartilhar</button>
+      <button id="exportarCsv" type="button" disabled>Exportar CSV</button>
     </div>
     <div class="modal-corpo">
       <canvas id="graficoHistorico"></canvas>
@@ -355,6 +372,57 @@
     <div class="modal-corpo">
       <canvas id="graficoComparar"></canvas>
       <p class="modal-vazio" id="compararVazio" hidden></p>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalAjudaOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalAjudaTitulo">
+    <div class="modal-topo">
+      <div>
+        <div class="modal-cidade" id="modalAjudaTitulo">O que significa cada coisa</div>
+        <div class="modal-rio">Ícones, cores e linhas usados no painel</div>
+      </div>
+      <button class="modal-fechar" id="modalAjudaFechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="ajuda-lista">
+      <div class="ajuda-item">
+        <b>Tags de status:</b>
+        <span class="tag normal">Normal</span> <span class="tag atencao">Atenção</span>
+        <span class="tag alerta">Alerta</span> <span class="tag alagado">Alagado</span>
+        — normal &lt; 60% da cota · atenção ≥ 60% · alerta ≥ 80% · alagado ≥ 100%.
+      </div>
+      <div class="ajuda-item">
+        <span class="frescor" style="background:#639922"></span>
+        <b>Pontinho de frescor</b> (ao lado da hora, no rodapé do card) — verde: dado ao
+        vivo (até 20 min) · amarelo: atrasado (até 1h) · vermelho: obsoleto (mais de 1h).
+      </div>
+      <div class="ajuda-item">
+        <b>▲ / ▼ / ■</b> — tendência do nível: subindo, descendo ou estável, calculada
+        pelas duas últimas leituras (por isso pode oscilar mesmo com o rio subindo ao
+        longo do dia).
+      </div>
+      <div class="ajuda-item">
+        <b>⏱ atinge a cota em ~Xh</b> / <b>↩ volta ao normal em ~Xh</b> — estimativa
+        simples (não é previsão) de quanto tempo falta, se o ritmo atual continuar.
+      </div>
+      <div class="ajuda-item">
+        <b>🌊 X% do nível da cheia de 2024</b> — compara o nível atual com o pico real
+        da enchente de maio/2024 registrado nessa estação (quando temos o dado).
+      </div>
+      <div class="ajuda-item">
+        <b>Gráfico pontilhado no card ("Vazão prevista")</b> — modelo de vazão (m³/s)
+        dos próximos dias, não é previsão de nível em metros.
+      </div>
+      <div class="ajuda-item">
+        <b>No gráfico do histórico:</b> linha tracejada cinza = cota de inundação ·
+        linha pontilhada roxa = recorde da nossa própria coleta · linha tracejada verde
+        = pico da cheia de maio/2024.
+      </div>
+      <div class="ajuda-item">
+        <b>📤 Compartilhar</b> — monta um resumo em texto da estação e abre o menu de
+        compartilhamento do celular (ou copia pra área de transferência no computador).
+      </div>
     </div>
   </div>
 </div>
@@ -691,7 +759,10 @@ function card(e) {
         <div class="cidade">${e.cidade}/${e.uf}</div>
         <div class="rio">${e.rio}</div>
       </div>
-      <span class="tag ${e.status}">${ROTULOS[e.status]}</span>
+      <div class="topo-acoes">
+        <span class="tag ${e.status}">${ROTULOS[e.status]}</span>
+        <button type="button" class="btn-compartilhar" data-compartilhar="${e.slug}" title="Compartilhar">📤</button>
+      </div>
     </div>
     ${clima}
     <p class="nivel">${nivel}<small> m</small></p>
@@ -709,6 +780,8 @@ function card(e) {
   </div>`;
 }
 
+let filtroAtual = '';
+
 function render() {
   if (!dados) return;
   const ordem = document.getElementById('ordem').value;
@@ -718,19 +791,40 @@ function render() {
   else if (ordem === 'rio') lista.sort((a, b) => a.rio.localeCompare(b.rio) || a.cidade.localeCompare(b.cidade));
   else lista.sort((a, b) => (b.percentualCota ?? -1) - (a.percentualCota ?? -1));
 
-  document.getElementById('grid').innerHTML = lista.map(card).join('');
+  // KPIs sempre refletem TODAS as estações, mesmo com filtro de busca ativo
+  // — o filtro é só pra achar um card na tela, não pra recortar o resumo.
   document.getElementById('k-alerta').textContent = dados.resumo.emAlerta;
   document.getElementById('k-alagado').textContent = dados.resumo.acimaDaCota;
   document.getElementById('k-subindo').textContent = dados.resumo.subindo;
 
   const poa = dados.estacoes.find(e => e.slug === 'portoalegre');
   document.getElementById('k-poa').textContent = poa && poa.nivel !== null ? poa.nivel.toFixed(2) + ' m' : '—';
+
+  const comSubida24h = dados.estacoes.filter((e) => e.variacao24hCm !== null && e.variacao24hCm > 0);
+  const maiorSubida = comSubida24h.reduce((maior, e) => (!maior || e.variacao24hCm > maior.variacao24hCm ? e : maior), null);
+  document.getElementById('k-subida24h').textContent = maiorSubida
+    ? `${maiorSubida.cidade} +${maiorSubida.variacao24hCm.toFixed(0)}cm`
+    : '—';
+
   document.getElementById('sub').textContent =
     dados.estacoes.length + ' estações · atualizado ' + hora(dados.atualizadoEm);
 
-  desenharSparklines(lista);
-  desenharPrevisoes(lista);
+  const termo = filtroAtual.trim().toLowerCase();
+  const listaFiltrada = termo
+    ? lista.filter((e) => `${e.cidade} ${e.rio} ${e.uf}`.toLowerCase().includes(termo))
+    : lista;
+
+  document.getElementById('grid').innerHTML = listaFiltrada.map(card).join('');
+  document.getElementById('filtroVazio').hidden = listaFiltrada.length > 0;
+
+  desenharSparklines(listaFiltrada);
+  desenharPrevisoes(listaFiltrada);
 }
+
+document.getElementById('filtroEstacao').addEventListener('input', (ev) => {
+  filtroAtual = ev.target.value;
+  render();
+});
 
 // ---- Mini-gráficos de tendência nos cards ----
 let sparklines = new Map();
@@ -1106,6 +1200,12 @@ function desenharGrafico(resposta) {
 }
 
 document.getElementById('grid').addEventListener('click', (ev) => {
+  const btnCompartilhar = ev.target.closest('[data-compartilhar]');
+  if (btnCompartilhar) {
+    ev.stopPropagation();
+    compartilharEstacao(btnCompartilhar.dataset.compartilhar, btnCompartilhar);
+    return;
+  }
   const card = ev.target.closest('.card');
   if (card && card.dataset.slug) abrirHistorico(card.dataset.slug);
 });
@@ -1118,6 +1218,73 @@ document.addEventListener('keydown', (ev) => {
 });
 document.querySelectorAll('.janela-btn').forEach((b) => {
   b.addEventListener('click', () => selecionarJanela(Number(b.dataset.horas)));
+});
+
+// ---- Compartilhar (Web Share API, com fallback pra copiar) ----
+// Sem servidor mandando nada — só monta um texto e entrega pro próprio
+// navegador/SO decidir o canal (WhatsApp, SMS, e-mail...), ou copia pra
+// área de transferência em navegadores sem suporte (comum em desktop).
+function gerarResumoCompartilhamento(e) {
+  const nivel = e.nivel === null ? '—' : e.nivel.toFixed(2) + ' m';
+
+  let vel = '';
+  if (e.velocidadeCmH !== null) {
+    const seta = e.velocidadeCmH > 0 ? '▲' : e.velocidadeCmH < 0 ? '▼' : '■';
+    vel = ` (${seta} ${Math.abs(e.velocidadeCmH).toFixed(1)} cm/h)`;
+  }
+
+  const margem = e.margem === null ? ''
+    : e.margem >= 0 ? `${e.margem.toFixed(2)} m abaixo da cota (${e.cota.toFixed(2)} m)`
+    : `${Math.abs(e.margem).toFixed(2)} m ACIMA da cota (${e.cota.toFixed(2)} m)`;
+
+  const status = ROTULOS[e.status] || '';
+  const link = window.location.origin + window.location.pathname;
+
+  return `🌊 ${e.cidade}/${e.uf} — ${e.rio}\n` +
+    `Nível: ${nivel}${vel}\n` +
+    `${margem}${margem ? ' — ' : ''}${status}\n` +
+    `Atualizado: ${hora(e.medidoEm)}\n` +
+    `${link}\n` +
+    `Fonte: nivelguaiba.com.br — não é sistema oficial de alerta.`;
+}
+
+function mostrarFeedbackBotao(botao, textoTemporario) {
+  if (!botao) return;
+  const original = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = textoTemporario;
+  setTimeout(() => {
+    botao.textContent = original;
+    botao.disabled = false;
+  }, 1800);
+}
+
+async function compartilharEstacao(slug, botao) {
+  const e = dados && dados.estacoes.find((x) => x.slug === slug);
+  if (!e) return;
+
+  const texto = gerarResumoCompartilhamento(e);
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: `Nível do rio — ${e.cidade}/${e.uf}`, text: texto });
+    } catch (erro) {
+      // AbortError = usuário cancelou o menu nativo, não é uma falha real.
+      if (erro && erro.name !== 'AbortError') console.error('Falha ao compartilhar:', erro);
+    }
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(texto);
+    mostrarFeedbackBotao(botao, botao && botao.textContent.length <= 2 ? '✓' : '✓ Copiado!');
+  } catch (erro) {
+    window.prompt('Não foi possível copiar automaticamente — copie o texto abaixo:', texto);
+  }
+}
+
+document.getElementById('modalCompartilhar').addEventListener('click', (ev) => {
+  if (slugAtual) compartilharEstacao(slugAtual, ev.currentTarget);
 });
 
 function exportarCsv() {
@@ -1370,6 +1537,24 @@ document.getElementById('compararModo').addEventListener('change', (ev) => {
   desenharGraficoComparar();
 });
 document.getElementById('compararExportarCsv').addEventListener('click', exportarCsvComparar);
+
+// ---- Modal de ajuda (só conteúdo estático, sem fetch) ----
+function abrirAjuda() {
+  document.getElementById('modalAjudaOverlay').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+function fecharAjuda() {
+  document.getElementById('modalAjudaOverlay').hidden = true;
+  document.body.style.overflow = '';
+}
+document.getElementById('ajudaToggle').addEventListener('click', abrirAjuda);
+document.getElementById('modalAjudaFechar').addEventListener('click', fecharAjuda);
+document.getElementById('modalAjudaOverlay').addEventListener('click', (ev) => {
+  if (ev.target.id === 'modalAjudaOverlay') fecharAjuda();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && !document.getElementById('modalAjudaOverlay').hidden) fecharAjuda();
+});
 </script>
 </body>
 </html>

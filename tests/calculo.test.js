@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classificar, calcularVelocidade, calcularFrescor } from '../lib/calculo.js';
+import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h } from '../lib/calculo.js';
 
 test('classificar: abaixo de 60% da cota é normal', () => {
   assert.equal(classificar(5, 10), 'normal');
@@ -67,4 +67,17 @@ test('calcularFrescor: sem leitura nenhuma retorna sem_dado', () => {
   const r = calcularFrescor(null);
   assert.equal(r.status, 'sem_dado');
   assert.equal(r.idadeSegundos, null);
+});
+
+test('calcularVariacao24h: subida de 34cm em 24h', () => {
+  assert.equal(calcularVariacao24h(12.74, 12.40), 34);
+});
+
+test('calcularVariacao24h: descida vira número negativo', () => {
+  assert.equal(calcularVariacao24h(12.0, 12.5), -50);
+});
+
+test('calcularVariacao24h: sem nível atual ou sem referência de 24h retorna null', () => {
+  assert.equal(calcularVariacao24h(null, 12.4), null);
+  assert.equal(calcularVariacao24h(12.4, null), null);
 });

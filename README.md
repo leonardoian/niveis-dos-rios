@@ -281,6 +281,32 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   nova no backend); o eixo X usa escala linear com epoch em ms em vez de
   categorias, porque os horários de leitura não coincidem exatamente entre
   estações diferentes. A seleção fica salva em `localStorage`.
+- **Compartilhar** (📤 no card e no modal de histórico): monta um resumo em
+  texto da estação (nível, tendência, margem pra cota, quando foi
+  atualizado, link do painel) e entrega pro navegador decidir o canal — usa
+  a Web Share API (`navigator.share`) quando disponível, que abre o menu
+  nativo do celular (WhatsApp, SMS, e-mail, o que a pessoa escolher). Sem
+  suporte (comum em desktop), cai pra copiar o texto na área de
+  transferência, com feedback visual rápido no botão. Sem credencial, sem
+  servidor mandando nada — só monta texto e usa API do próprio navegador.
+- **Ajuda** (botão "❓ Ajuda" no cabeçalho): modal estático explicando o que
+  cada ícone/cor/linha do painel significa (frescor, setas de tendência,
+  estimativas ⏱/↩, badge da cheia de 2024, linhas do gráfico do histórico)
+  — o app acumulou bastante coisa ao longo do tempo, isso ajuda quem não
+  acompanhou tudo sendo construído.
+- **Busca/filtro** (campo acima da grade de estações): filtra os cards por
+  cidade, rio ou UF (substring, sem acentuação especial). Os KPIs do topo
+  continuam refletindo **todas** as estações mesmo com filtro ativo — o
+  filtro é só pra achar um card na tela, não um recorte do resumo geral.
+- **KPI "Maior subida 24h"** (`variacao24hCm` em cada estação do
+  `/api/painel`, calculado por `calcularVariacao24h` em `lib/calculo.js`):
+  compara o nível atual com a leitura mais recente que já tem **pelo menos
+  24h** (`referencia24hBruta` em `api/painel.js`) — não interpola nem pega a
+  leitura mais próxima de qualquer lado; estação sem 24h de histórico ainda
+  (ex.: recém-cadastrada) fica com `variacao24hCm: null` e é ignorada no
+  ranking, em vez de mostrar uma janela que não é realmente de 24h. Só
+  considera variações positivas pro destaque (não faz sentido "maior
+  subida" ser uma descida).
 
 ## Testes
 
