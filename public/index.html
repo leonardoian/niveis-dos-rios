@@ -81,8 +81,16 @@
   button:hover { background: var(--bg); }
   button:disabled { opacity: .5; cursor: not-allowed; }
   button:disabled:hover { background: var(--card); }
+  select:focus { outline: none; border-color: var(--txt3); }
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .filtro-input { width: 100%; max-width: 320px; margin-bottom: 14px; }
+  .filtro-input {
+    font: inherit; font-size: 13px; padding: 7px 12px;
+    border: 1px solid var(--linha); border-radius: 7px;
+    background: var(--card); color: var(--txt);
+    width: 100%; max-width: 320px; margin-bottom: 14px; display: block;
+  }
+  .filtro-input::placeholder { color: var(--txt3); }
+  .filtro-input:focus { outline: none; border-color: var(--txt3); }
   .filtro-vazio { color: var(--txt3); font-size: 13px; padding: 20px 0; text-align: center; }
   .kpi { background: var(--card); border: 1px solid var(--linha); border-radius: 10px; padding: 14px 16px; }
   .kpi span { display: block; font-size: 12px; color: var(--txt2); }
@@ -258,7 +266,7 @@
   /* Celular: alvo de toque maior nos botões/select (recomendação ~44px) e
      modal ocupando mais da tela, já que não tem espaço sobrando. */
   @media (max-width: 600px) {
-    select, button { padding: 10px 14px; font-size: 14px; }
+    select, button, .filtro-input { padding: 10px 14px; font-size: 14px; }
     .janela-btn { padding: 9px 14px; }
     .modal { padding: 16px; max-height: 95vh; }
     .modal-overlay { padding: 10px; }
