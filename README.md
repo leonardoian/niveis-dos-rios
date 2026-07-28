@@ -52,13 +52,25 @@ lib/calculo.js                        funções puras (classificar, cm/h, fresco
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
 tests/                                testes automatizados (node --test, sem dependência nova)
-public/index.html                     painel
+public/index.html                     painel (estrutura HTML só; CSS/JS em css/ e js/)
 public/bacia.html                     mapa da bacia (Leaflet) + hierarquia dos rios
 public/acerto.html                    acerto da estimativa de cota, por antecedência
+public/css/tema.css                   variáveis de cor (claro/escuro) — as 3 páginas carregam
+public/css/base.css                   reset + estilos base (body, button, .rodape-fontes...) — as 3 páginas carregam
+public/css/painel.css                 estilos só de index.html
+public/css/bacia.css                  estilos só de bacia.html
+public/css/acerto.css                 estilos só de acerto.html
+public/js/tema.js                     toggle de tema claro/escuro — as 3 páginas carregam
+public/js/comum.js                    hora(), ROTULOS, CORES, CONDICOES/condicaoTexto — as 3 páginas carregam
+public/js/painel.js                   lógica só de index.html
+public/js/bacia.js                    lógica só de bacia.html
+public/js/acerto.js                   lógica só de acerto.html
 public/manifest.json                  PWA — nome, cores, ícones (pra "adicionar à tela inicial")
 public/icons/                         ícones do PWA (gerados, ver nota abaixo)
 schema.sql                            tabelas + carga inicial das 14 estações
 ```
+
+Continua **sem build step** — os `<link rel="stylesheet">` e `<script src="...">` apontam direto pros arquivos em `css/`/`js/`, servidos como estático pelo Vercel, igual a qualquer outro arquivo em `public/`. Nenhum bundler, nenhum passo de compilação novo.
 
 ## Passo a passo
 
@@ -210,6 +222,34 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/coletar`                      | força uma coleta (requer o header)  |
 
 ## Notas
+
+### Organização do CSS/JS entre as 3 páginas
+
+`index.html`, `bacia.html` e `acerto.html` costumavam ter cada uma seu
+próprio `<style>`/`<script>` inline — e três blocos praticamente idênticos
+de variáveis de tema, `hora()`, `ROTULOS`/`CORES`/`CONDICOES` duplicados
+byte a byte entre elas. Agora ficam em `public/css/` e `public/js/`:
+
+- **`tema.css`/`tema.js`** e **`base.css`/`comum.js`**: o que é *idêntico*
+  nas 3 páginas — variáveis de cor, reset, `body`/`button`/`.rodape-fontes`,
+  toggle de tema, `hora()`, `ROTULOS`/`CORES`/`CONDICOES`. Confirmado
+  idêntico com diff antes de extrair, não foi "parece igual".
+- **`painel.css`/`painel.js`, `bacia.css`/`bacia.js`, `acerto.css`/`acerto.js`**:
+  o que é específico de cada página.
+
+Continua tudo `<link>`/`<script src="">` direto — sem bundler, sem passo de
+build novo, sem módulos ES no navegador (as 3 páginas carregam os scripts
+na mesma ordem/escopo global de antes: `tema.js` → `comum.js` → o script da
+página). A refatoração foi só reorganização de arquivo; nenhum comportamento
+deveria ter mudado — cada extração foi conferida com diff linha a linha
+contra o original antes de ser considerada pronta.
+
+Uma inconsistência que a refatoração **não corrigiu de propósito** (pra não
+misturar reorganização com mudança de comportamento): o `@media (max-width:
+600px)` que aumenta o alvo de toque dos botões no celular só existe em
+`painel.css` — `bacia.html`/`acerto.html` nunca tiveram essa regra, mesmo
+antes da refatoração. Se fizer sentido igualar, dá pra mover pra `base.css`
+depois, como mudança separada.
 
 ### Como os números são calculados
 

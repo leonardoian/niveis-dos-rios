@@ -1,0 +1,22 @@
+/* Estilos exclusivos da página de acerto da estimativa (acerto.html). Cores/
+   reset/tema compartilhados ficam em tema.css e base.css, carregados antes
+   deste. */
+
+.wrap { max-width: 900px; margin: 0 auto; }
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+h2 { font-size: 14px; font-weight: 600; color: var(--txt2); margin: 28px 0 10px; }
+.aviso { background: var(--aviso-bg); border: 1px solid var(--aviso-border); color: var(--aviso-txt); padding: 12px 14px; border-radius: 8px; font-size: 13px; margin: 16px 0; }
+
+.faixas { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.faixa-card { background: var(--card); border: 1px solid var(--linha); border-radius: 10px; padding: 14px 16px; }
+.faixa-card span { display: block; font-size: 12px; color: var(--txt2); }
+.faixa-card strong { display: block; font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.faixa-card small { display: block; font-size: 12px; color: var(--txt3); margin-top: 2px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--linha); }
+th { color: var(--txt2); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+td.acertou { color: #3b6d11; }
+td.errou { color: #a32d2d; }
+.tabela-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--linha); border-radius: 10px; }
+.vazio { text-align: center; color: var(--txt3); font-size: 13px; padding: 30px 0; }

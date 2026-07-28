@@ -1,0 +1,44 @@
+/* Estilos exclusivos do mapa da bacia (bacia.html). Cores/reset/tema
+   compartilhados ficam em tema.css e base.css, carregados antes deste. */
+
+.wrap { max-width: 980px; margin: 0 auto; }
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.aviso { background: var(--aviso-bg); border: 1px solid var(--aviso-border); color: var(--aviso-txt); padding: 12px 14px; border-radius: 8px; font-size: 13px; margin: 16px 0; }
+
+.bacia { margin-top: 28px; }
+.tier { text-align: center; }
+.tier h2 { font-size: 14px; font-weight: 600; color: var(--txt2); margin-bottom: 10px; }
+.estacoes { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+
+.conector { text-align: center; font-size: 22px; color: var(--txt3); margin: 10px 0; }
+
+.confluencia {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 28px;
+  padding: 18px 0; margin: 4px 0;
+  border-top: 1px dashed var(--linha); border-bottom: 1px dashed var(--linha);
+}
+.confluencia .tier { min-width: 160px; }
+.legenda-confluencia { text-align: center; font-size: 12px; color: var(--txt3); margin: 6px 0 4px; }
+.foz { text-align: center; font-size: 13px; color: var(--txt3); margin-top: 4px; }
+
+.pill {
+  background: var(--card); border: 1px solid var(--linha); border-left: 4px solid var(--txt3);
+  border-radius: 8px; padding: 8px 12px; min-width: 130px; text-align: left;
+}
+.pill.normal   { border-left-color: #639922; }
+.pill.atencao  { border-left-color: #ba7517; }
+.pill.alerta   { border-left-color: #ef9f27; }
+.pill.alagado  { border-left-color: #e24b4a; }
+.pill.sem_dado { border-left-color: #c9ccd2; }
+.pill-cidade { font-size: 13px; font-weight: 600; }
+.pill-nivel { font-size: 15px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.pill-tag { font-size: 10px; color: var(--txt3); text-transform: uppercase; letter-spacing: .3px; margin-top: 2px; }
+
+.mapa-titulo { font-size: 14px; font-weight: 600; color: var(--txt2); margin: 24px 0 10px; }
+#mapa {
+  height: 440px; border-radius: 12px; border: 1px solid var(--linha);
+  background: var(--card);
+}
+.popup-cidade { font-weight: 600; font-size: 13px; }
+.popup-rio { font-size: 12px; color: var(--txt2); margin-bottom: 4px; }
+.popup-nivel { font-size: 13px; }

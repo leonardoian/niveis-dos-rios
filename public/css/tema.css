@@ -1,0 +1,39 @@
+/* Variáveis de cor (tema claro/escuro), compartilhadas por index.html,
+   bacia.html e acerto.html. Segue prefers-color-scheme por padrão; o
+   atributo data-tema (fixado por js/tema.js via botão 🌙/☀️) sobrepõe a
+   preferência do sistema quando presente. */
+:root {
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --linha: #e3e5ea;
+  --txt: #16181d;
+  --txt2: #5f6470;
+  --txt3: #8b909c;
+  --aviso-bg: #fff6e5;
+  --aviso-border: #f0d4a0;
+  --aviso-txt: #6b4c15;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --bg: #14161b;
+    --card: #1c1f26;
+    --linha: #2a2e37;
+    --txt: #e8e9ed;
+    --txt2: #a8adb8;
+    --txt3: #767c88;
+    --aviso-bg: #3a2f16;
+    --aviso-border: #5c4a1f;
+    --aviso-txt: #f0d4a0;
+  }
+}
+:root[data-tema="escuro"] {
+  --bg: #14161b;
+  --card: #1c1f26;
+  --linha: #2a2e37;
+  --txt: #e8e9ed;
+  --txt2: #a8adb8;
+  --txt3: #767c88;
+  --aviso-bg: #3a2f16;
+  --aviso-border: #5c4a1f;
+  --aviso-txt: #f0d4a0;
+}
