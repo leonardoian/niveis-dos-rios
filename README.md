@@ -10,16 +10,18 @@ api/coletar.js                       rota HTTP protegida por CRON_SECRET; chama 
 api/painel.js                         estado atual das estações (nível, cota, cm/h, status)
 api/historico.js                      série temporal de uma estação
 api/alertas.js                        últimos alertas (mudança de status), com nome da cidade
+api/acerto.js                         acerto da estimativa de cota, por antecedência (ver Notas)
 lib/db.js                             conexão com o Neon
 lib/feed.js                           leitura e parse do feed JSON
-lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão)
+lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão + estimativas)
 lib/previsao.js                       busca vazão (GloFAS) e clima (Open-Meteo) por coordenada
-lib/calculo.js                        funções puras (classificar, cm/h, frescor) — testadas em tests/
+lib/calculo.js                        funções puras (classificar, cm/h, frescor, ETA cota) — testadas em tests/
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
 tests/                                testes automatizados (node --test, sem dependência nova)
 public/index.html                     painel
 public/bacia.html                     mapa da bacia (Leaflet) + hierarquia dos rios
+public/acerto.html                    acerto da estimativa de cota, por antecedência
 public/manifest.json                  PWA — nome, cores, ícones (pra "adicionar à tela inicial")
 public/icons/                         ícones do PWA (gerados, ver nota abaixo)
 schema.sql                            tabelas + carga inicial das 14 estações
@@ -171,6 +173,7 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/painel`                       | todas as estações, estado atual     |
 | `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação    |
 | `GET /api/alertas`                      | últimos 30 alertas (mudança de status) |
+| `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
 | `GET /api/coletar`                      | força uma coleta (requer o header)  |
 
 ## Notas
@@ -350,6 +353,43 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   ranking, em vez de mostrar uma janela que não é realmente de 24h. Só
   considera variações positivas pro destaque (não faz sentido "maior
   subida" ser uma descida).
+- **Acerto da estimativa de cota** (`public/acerto.html` + `api/acerto.js`;
+  tabela `estimativas_cota`; `registrarEstimativasCota`/`avaliarEstimativasCota`
+  em `lib/coletar.js`; `calcularEtaCota` extraída pra `lib/calculo.js`,
+  compartilhada em espírito com `renderizarEstimativaCota` do painel — a
+  mesma conta reimplementada nos dois lados, já que `public/index.html` é
+  script solto sem bundler e não dá pra importar `lib/`). Ideia veio de
+  analisar o `enchentes.lab4ge.com`, que tem uma página parecida — mas com
+  um escopo bem mais restrito, de propósito:
+  - **Só valida a estimativa "⏱ atinge a cota" / "↩ volta ao normal"**, não
+    a vazão prevista. Motivo: pra validar uma previsão, precisa de uma
+    medição real e independente pra comparar depois — pra vazão a gente só
+    tem modelo (Open-Meteo/GloFAS), nenhuma medição real, então "validar"
+    isso seria só comparar um resultado do modelo com outro resultado do
+    mesmo modelo. Pra estimativa de cota, a gente tem: ela é extrapolação
+    da nossa própria telemetria de nível, e depois dá pra conferir contra
+    o nível **real** medido depois — validação de verdade.
+  - Cada vez que a coleta roda (`registrarEstimativasCota`), se a estação
+    está subindo/descendo o bastante pra gerar uma estimativa e **não**
+    existe uma "em aberto" ainda pra ela, arquiva: nível e velocidade no
+    momento, `alvo_nivel` (a cota, ou 60% dela), horas estimadas, e o
+    horário-alvo (`alvo_em`). Só uma em aberto por estação por vez — senão
+    uma subida de várias horas geraria uma linha quase idêntica a cada 15
+    min.
+  - Quando o prazo vence (`alvo_em` + tolerância — 20% do horizonte
+    estimado, entre 1h e 12h), `avaliarEstimativasCota` confere se alguma
+    leitura real da estação cruzou o `alvo_nivel` dentro da janela
+    `[previsto_em, alvo_em + tolerância]`. Cruzou = "acertou" (com
+    `erro_horas` = diferença entre o cruzamento real e o horário previsto).
+    Não cruzou (seja porque ainda não tinha chegado lá, seja porque a
+    tendência reverteu antes) = "errou" — as duas situações contam igual,
+    porque na hora H a estimativa não teria ajudado quem confiasse nela.
+  - `/api/acerto` agrupa por antecedência (até 6h / 6–24h / mais de 24h) —
+    a expectativa razoável é a taxa cair conforme o horizonte cresce, já
+    que a extrapolação usa só as duas últimas leituras (bem sensível a
+    ruído, como documentado em `calcularEtaCota`); um resultado "ruim" pras
+    janelas longas não é bug, é o preço honesto de uma extrapolação simples
+    tentando prever longe.
 
 ## Testes
 

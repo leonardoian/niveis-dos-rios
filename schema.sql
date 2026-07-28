@@ -83,6 +83,39 @@ ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS condicao_codigo INT;
 CREATE INDEX IF NOT EXISTS idx_previsoes_slug_dia
     ON previsoes (slug, dia);
 
+-- Arquiva cada estimativa "⏱ atinge a cota" / "↩ volta ao normal" (ver
+-- calcularEtaCota em lib/calculo.js) no momento em que foi calculada, pra
+-- depois conferir contra o nível REAL medido — diferente da previsão de
+-- vazão (que não temos como validar, é só modelo sem medição real pra
+-- comparar), aqui a estimativa é extrapolação da nossa própria telemetria
+-- de nível, então dá pra avaliar com integridade.
+--
+-- Só uma estimativa "em aberto" por estação por vez (ver lib/coletar.js):
+-- enquanto a última ainda não foi avaliada, não cria outra — senão toda
+-- subida de 6h+ geraria uma linha nova a cada 15 min, quase todas
+-- redundantes entre si.
+CREATE TABLE IF NOT EXISTS estimativas_cota (
+    id                  BIGSERIAL PRIMARY KEY,
+    slug                TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
+    classe              TEXT NOT NULL,               -- subindo | descendo
+    previsto_em         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    nivel_no_calculo    NUMERIC(7,2) NOT NULL,
+    velocidade_cm_h     NUMERIC(8,2) NOT NULL,
+    alvo_nivel          NUMERIC(7,2) NOT NULL,       -- nível que precisa ser cruzado (cota, ou 60% dela)
+    horas_estimadas     NUMERIC(8,2) NOT NULL,
+    alvo_em             TIMESTAMPTZ NOT NULL,        -- previsto_em + horas_estimadas
+    tolerancia_horas    NUMERIC(6,2) NOT NULL,       -- janela de tolerância além do alvo_em pra considerar "acertou"
+    avaliado_em         TIMESTAMPTZ,                 -- NULL = ainda em aberto
+    resultado           TEXT,                        -- 'acertou' | 'errou' (NULL até avaliar)
+    nivel_real_no_alvo  NUMERIC(7,2),                -- leitura real mais próxima do alvo_em, pra contexto
+    erro_horas          NUMERIC(8,2)                 -- diferença real vs. previsto, só quando 'acertou'
+);
+
+CREATE INDEX IF NOT EXISTS idx_estimativas_cota_pendentes
+    ON estimativas_cota (slug) WHERE avaliado_em IS NULL;
+CREATE INDEX IF NOT EXISTS idx_estimativas_cota_avaliadas
+    ON estimativas_cota (avaliado_em) WHERE avaliado_em IS NOT NULL;
+
 -- ============================================================
 -- Carga inicial das 14 estações (cotas conforme sua planilha)
 -- Coordenadas: sede do município (fonte: Wikipédia), usadas só para

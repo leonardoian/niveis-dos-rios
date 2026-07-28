@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h } from '../lib/calculo.js';
+import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h, calcularEtaCota } from '../lib/calculo.js';
 
 test('classificar: abaixo de 60% da cota é normal', () => {
   assert.equal(classificar(5, 10), 'normal');
@@ -80,4 +80,33 @@ test('calcularVariacao24h: descida vira número negativo', () => {
 test('calcularVariacao24h: sem nível atual ou sem referência de 24h retorna null', () => {
   assert.equal(calcularVariacao24h(null, 12.4), null);
   assert.equal(calcularVariacao24h(12.4, null), null);
+});
+
+test('calcularEtaCota: subindo, longe da cota', () => {
+  // nivel=6.5 cota=10 margem=3.5 velocidade=5cm/h -> 3.5*100/5 = 70h
+  const r = calcularEtaCota(6.5, 10, 3.5, 5, 65);
+  assert.equal(r.classe, 'subindo');
+  assert.equal(r.horas, 70);
+  assert.equal(r.alvoNivel, 10);
+});
+
+test('calcularEtaCota: descendo, ainda acima do limiar de normal (60% da cota)', () => {
+  // nivel=7.0 cota=10 (normal=6.0) velocidade=-4cm/h -> margem até normal=1.0 -> 1.0*100/4 = 25h
+  const r = calcularEtaCota(7.0, 10, 3.0, -4, 70);
+  assert.equal(r.classe, 'descendo');
+  assert.equal(r.horas, 25);
+  assert.equal(r.alvoNivel, 6);
+});
+
+test('calcularEtaCota: subindo mas já passou a cota retorna null', () => {
+  assert.equal(calcularEtaCota(10.5, 10, -0.5, 3, 105), null);
+});
+
+test('calcularEtaCota: descendo mas já está normal retorna null', () => {
+  assert.equal(calcularEtaCota(5.0, 10, 5.0, -2, 50), null);
+});
+
+test('calcularEtaCota: velocidade zero ou nula retorna null', () => {
+  assert.equal(calcularEtaCota(6.5, 10, 3.5, 0, 65), null);
+  assert.equal(calcularEtaCota(6.5, 10, 3.5, null, 65), null);
 });
