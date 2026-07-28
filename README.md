@@ -3,6 +3,39 @@
 Sistema interno que coleta os níveis das 14 estações do feed público de
 `nivelguaiba.com.br`, guarda a série histórica no Neon e exibe o painel.
 
+Node 20+, ESM, sem framework e sem build step — Vercel serverless (`/api`) +
+estático (`/public`) + Neon Postgres. Não é sistema oficial de alerta.
+
+## Principais funcionalidades
+
+- **Painel** com nível, cota, tendência (cm/h), status de risco e frescor da
+  leitura para as 14 estações, com busca/filtro e comparação entre estações
+  no mesmo gráfico.
+- **Estimativa "quanto falta pra cota"**, com uma página própria mostrando o
+  quanto essa estimativa **acerta de verdade**, por antecedência.
+- **Vazão e clima previstos** (Open-Meteo/GloFAS) — sempre separados do
+  nível medido, nunca convertidos um no outro sem a curva-chave que não
+  temos.
+- **Comparativo com a cheia de maio/2024**, onde há registro confiável pra
+  comparar.
+- **Mapa da bacia** (Leaflet) com a hierarquia de como os rios se conectam.
+- **Histórico de alertas**, exportação em CSV, recorde histórico no gráfico.
+- **Tema claro/escuro, modo apresentação (tela cheia), PDF do painel.**
+- **PWA** — instalável na tela inicial do celular — e responsivo em telas
+  pequenas.
+- **Status de saúde das próprias fontes de dados**, pra saber rápido se o
+  feed ou a previsão pararam de responder.
+
+## Índice
+
+- [Estrutura](#estrutura)
+- [Passo a passo](#passo-a-passo)
+- [Rodando a coleta sem depender do Vercel](#rodando-a-coleta-sem-depender-do-vercel)
+- [Endpoints](#endpoints)
+- [Notas](#notas)
+- [Testes](#testes)
+- [Fontes dos dados](#fontes-dos-dados)
+
 ## Estrutura
 
 ```
@@ -178,6 +211,8 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 
 ## Notas
 
+### Como os números são calculados
+
 - **Cota de inundação** não vem do feed. Fica fixa na tabela `estacoes`; para
   ajustar, faça `UPDATE estacoes SET cota_inundacao = X WHERE slug = 'Y'`.
 - **Velocidade (cm/h)** é calculada em `api/painel.js` a partir das duas últimas
@@ -185,33 +220,67 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 - **Duplicatas**: a constraint `UNIQUE (slug, medido_em)` faz o cron ser
   idempotente — se o feed não atualizou, nada é inserido.
 - **Status**: normal < 60% da cota · atenção ≥ 60% · alerta ≥ 80% · alagado ≥ 100%.
-- **Mobile**: `header .acoes` (os botões do topo) e `header` de `bacia.html`
-  usam `flex-wrap: wrap` — sem isso, o navegador no celular expandia a
-  viewport inteira da página pra caber os 7 botões numa linha só (bug real,
-  achado testando com Playwright em viewport de iPhone), o que empurrava a
-  página inteira, inclusive os modais, pra fora da tela com scroll
-  horizontal. `body`/`html` também têm `overflow-x: hidden` como rede de
-  segurança contra qualquer elemento futuro que vaze da largura da tela.
-  Há um `@media (max-width: 600px)` aumentando o alvo de toque dos botões
-  (~36px → ~43px, perto da recomendação de 44px) e reduzindo a margem dos
-  modais nessa faixa de largura.
-- **PWA ("adicionar à tela inicial")**: `public/manifest.json` + `public/icons/`
-  (ícone "gauge de nível" gerado — não é foto nem logo, é um desenho simples
-  em SVG rasterizado) permitem instalar o painel como app no celular, com
-  ícone e nome próprios em vez de aba do navegador. `index.html` e
-  `bacia.html` linkam o mesmo manifest + tags da Apple (`apple-touch-icon`,
-  `apple-mobile-web-app-*`), já que o iOS não segue o manifest sozinho pra
-  isso. **De propósito não tem service worker** — então funciona bem pra
-  "Adicionar à tela de início" (menu do navegador, manual) em Android e
-  iOS, mas o banner automático "Instalar app" do Chrome/Android (que exige
-  service worker) não deve aparecer sozinho. Cache offline ficaria pra uma
-  extensão futura, se for necessário.
-- O agendamento da coleta é externo — o Vercel não agenda nada neste projeto,
-  já que o plano Hobby só libera cron nativo 1x/dia. Recomendado rodar as
-  **duas** fontes em paralelo, com horários intercalados: o GitHub Actions
-  (`.github/workflows/coletar.yml`, já incluso) **e** um serviço como o
-  cron-job.org chamando `/api/coletar` — é seguro por causa do `ON CONFLICT
-  DO NOTHING`, e cobre o atraso ocasional de uma fonte com a outra.
+- **Frescor por leitura** (`frescor` em cada estação do `/api/painel`) marca
+  `ao_vivo` (≤20 min) / `atrasado` (≤1h) / `obsoleto` (>1h) individualmente —
+  mais granular que o `ultimaColeta` global, que só reflete a estação mais
+  recente entre todas.
+
+### Estimativa de cota e sua validação
+
+- **Estimativa "quanto falta pra cota" / "volta ao normal"** (`calcularEtaCota`
+  em `public/index.html`, usada tanto no card quanto no modal de histórico):
+  extrapolação linear simples da tendência **medida agora** (cm/h), não do
+  modelo de vazão de dias. Dois casos, mutuamente exclusivos:
+  - subindo e abaixo da cota → "⏱ atinge a cota em ~Xh";
+  - descendo e ainda acima do limiar de status "normal" (60% da cota, mesmo
+    limiar já usado em `classificar`) → "↩ volta ao normal em ~Xh".
+  Ambos são estimativa de curto prazo, o texto (e o `title` no card) deixa
+  isso explícito; não tenta prever além de poucas horas/dias porque o ritmo
+  de subida/descida de um rio não é constante. Como usa só as duas últimas
+  leituras, pode ficar zerada mesmo com uma tendência clara ao longo do dia
+  (flutuação normal do instrumento entre duas leituras consecutivas) — o
+  dado bruto está sempre no `/api/painel` (`velocidadeCmH`, `margem`) pra
+  conferir.
+- **Acerto da estimativa de cota** (`public/acerto.html` + `api/acerto.js`;
+  tabela `estimativas_cota`; `registrarEstimativasCota`/`avaliarEstimativasCota`
+  em `lib/coletar.js`; `calcularEtaCota` extraída pra `lib/calculo.js`,
+  compartilhada em espírito com `renderizarEstimativaCota` do painel — a
+  mesma conta reimplementada nos dois lados, já que `public/index.html` é
+  script solto sem bundler e não dá pra importar `lib/`). Ideia veio de
+  analisar o `enchentes.lab4ge.com`, que tem uma página parecida — mas com
+  um escopo bem mais restrito, de propósito:
+  - **Só valida a estimativa "⏱ atinge a cota" / "↩ volta ao normal"**, não
+    a vazão prevista. Motivo: pra validar uma previsão, precisa de uma
+    medição real e independente pra comparar depois — pra vazão a gente só
+    tem modelo (Open-Meteo/GloFAS), nenhuma medição real, então "validar"
+    isso seria só comparar um resultado do modelo com outro resultado do
+    mesmo modelo. Pra estimativa de cota, a gente tem: ela é extrapolação
+    da nossa própria telemetria de nível, e depois dá pra conferir contra
+    o nível **real** medido depois — validação de verdade.
+  - Cada vez que a coleta roda (`registrarEstimativasCota`), se a estação
+    está subindo/descendo o bastante pra gerar uma estimativa e **não**
+    existe uma "em aberto" ainda pra ela, arquiva: nível e velocidade no
+    momento, `alvo_nivel` (a cota, ou 60% dela), horas estimadas, e o
+    horário-alvo (`alvo_em`). Só uma em aberto por estação por vez — senão
+    uma subida de várias horas geraria uma linha quase idêntica a cada 15
+    min.
+  - Quando o prazo vence (`alvo_em` + tolerância — 20% do horizonte
+    estimado, entre 1h e 12h), `avaliarEstimativasCota` confere se alguma
+    leitura real da estação cruzou o `alvo_nivel` dentro da janela
+    `[previsto_em, alvo_em + tolerância]`. Cruzou = "acertou" (com
+    `erro_horas` = diferença entre o cruzamento real e o horário previsto).
+    Não cruzou (seja porque ainda não tinha chegado lá, seja porque a
+    tendência reverteu antes) = "errou" — as duas situações contam igual,
+    porque na hora H a estimativa não teria ajudado quem confiasse nela.
+  - `/api/acerto` agrupa por antecedência (até 6h / 6–24h / mais de 24h) —
+    a expectativa razoável é a taxa cair conforme o horizonte cresce, já
+    que a extrapolação usa só as duas últimas leituras (bem sensível a
+    ruído, como documentado em `calcularEtaCota`); um resultado "ruim" pras
+    janelas longas não é bug, é o preço honesto de uma extrapolação simples
+    tentando prever longe.
+
+### Vazão e clima previstos
+
 - **Previsão de vazão** (`lib/previsao.js`) vem do Open-Meteo/GloFAS, grátis e
   sem chave, buscada por coordenada (`lat`/`lon` em `estacoes`). É **vazão em
   m³/s, não nível em metros** — não dá pra converter uma na outra sem a
@@ -232,42 +301,11 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   divergir um pouco do que a Open-Meteo mostra numa consulta ao vivo,
   principalmente nos dias mais distantes da previsão de 7 dias — é o
   trade-off de não bater a API a cada coleta.
-- **Frescor por leitura** (`frescor` em cada estação do `/api/painel`) marca
-  `ao_vivo` (≤20 min) / `atrasado` (≤1h) / `obsoleto` (>1h) individualmente —
-  mais granular que o `ultimaColeta` global, que só reflete a estação mais
-  recente entre todas.
-- **Tema claro/escuro**: segue `prefers-color-scheme` do sistema por padrão;
-  o botão 🌙/☀️ no cabeçalho fixa uma preferência manual em `localStorage`
-  (chave `tema`), que passa a valer independente do sistema.
-- **Histórico de alertas** aparece no painel principal (não só no banco),
-  puxando `/api/alertas` — até 30 mudanças de status mais recentes.
-  `registrarAlertas` (`lib/coletar.js`) grava tanto a entrada num status de
-  risco (atenção/alerta/alagado) quanto a **volta ao normal** — só não
-  grava a primeira leitura de uma estação que já nasce normal (senão toda
-  estação tranquila desde sempre ganharia uma linha "normal" à toa).
-- **Exportar CSV**: no modal de histórico de uma estação, o botão gera o CSV
-  no navegador a partir dos dados já carregados pro gráfico (`medido_em,
-  nivel_m`) — não é uma rota nova no backend.
-- **Recorde histórico** no gráfico de uma estação: `/api/historico` retorna
-  `recorde` (maior nível já registrado, de toda a série — não só a janela
-  aberta), desenhado como uma segunda linha tracejada além da cota.
 - **Chuva prevista** aparece junto da tendência de vazão no modal de
   histórico (mesmo dado de `previsao`, campo `chuvaMm`).
-- **Estimativa "quanto falta pra cota" / "volta ao normal"** (`calcularEtaCota`
-  em `public/index.html`, usada tanto no card quanto no modal de histórico):
-  extrapolação linear simples da tendência **medida agora** (cm/h), não do
-  modelo de vazão de dias. Dois casos, mutuamente exclusivos:
-  - subindo e abaixo da cota → "⏱ atinge a cota em ~Xh";
-  - descendo e ainda acima do limiar de status "normal" (60% da cota, mesmo
-    limiar já usado em `classificar`) → "↩ volta ao normal em ~Xh".
-  Ambos são estimativa de curto prazo, o texto (e o `title` no card) deixa
-  isso explícito; não tenta prever além de poucas horas/dias porque o ritmo
-  de subida/descida de um rio não é constante. Como usa só as duas últimas
-  leituras, pode ficar zerada mesmo com uma tendência clara ao longo do dia
-  (flutuação normal do instrumento entre duas leituras consecutivas) — o
-  dado bruto está sempre no `/api/painel` (`velocidadeCmH`, `margem`) pra
-  conferir. Não exige nada novo do backend — os dois cálculos usam campos
-  que o `/api/painel` já retornava.
+
+### Qualidade e transparência dos dados
+
 - **Comparativo com a cheia de maio/2024** (colunas `nivel_cheia_2024` /
   `data_cheia_2024` em `estacoes`): mostra "🌊 X% do nível da cheia de 2024"
   no card e uma linha tracejada extra no gráfico do modal ("Cheia de
@@ -313,6 +351,43 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   ≤24h, já que ela só atualiza a cada 6h por design). Pensado pra flagrar
   rápido se uma fonte parar de vez, sem precisar abrir os 14 cards um por
   um.
+
+### Interface do painel
+
+- **Tema claro/escuro**: segue `prefers-color-scheme` do sistema por padrão;
+  o botão 🌙/☀️ no cabeçalho fixa uma preferência manual em `localStorage`
+  (chave `tema`), que passa a valer independente do sistema.
+- **Modo apresentação** (botão "🖥 Apresentação"): esconde controles
+  secundários, aumenta os cards e tenta entrar em tela cheia
+  (`requestFullscreen`) — se o navegador bloquear a tela cheia de verdade
+  (permissão, iframe etc.), o resto do modo (cards maiores, menos
+  distração) continua valendo mesmo assim. Sincroniza sozinho se a pessoa
+  sair pelo ESC em vez de clicar no botão de novo.
+- **Gerar PDF** (botão "🖨 Gerar PDF"): tira uma "foto" do painel inteiro
+  (`html2canvas`) e encolhe pra caber numa página A4 só, mantendo as cores e
+  o layout reais dos cards — em vez de imprimir em tamanho real e cortar em
+  várias páginas.
+- **PWA ("adicionar à tela inicial")**: `public/manifest.json` + `public/icons/`
+  (ícone "gauge de nível" gerado — não é foto nem logo, é um desenho simples
+  em SVG rasterizado) permitem instalar o painel como app no celular, com
+  ícone e nome próprios em vez de aba do navegador. `index.html` e
+  `bacia.html` linkam o mesmo manifest + tags da Apple (`apple-touch-icon`,
+  `apple-mobile-web-app-*`), já que o iOS não segue o manifest sozinho pra
+  isso. **De propósito não tem service worker** — então funciona bem pra
+  "Adicionar à tela de início" (menu do navegador, manual) em Android e
+  iOS, mas o banner automático "Instalar app" do Chrome/Android (que exige
+  service worker) não deve aparecer sozinho. Cache offline ficaria pra uma
+  extensão futura, se for necessário.
+- **Mobile**: `header .acoes` (os botões do topo) e `header` de `bacia.html`
+  usam `flex-wrap: wrap` — sem isso, o navegador no celular expandia a
+  viewport inteira da página pra caber os 7 botões numa linha só (bug real,
+  achado testando com Playwright em viewport de iPhone), o que empurrava a
+  página inteira, inclusive os modais, pra fora da tela com scroll
+  horizontal. `body`/`html` também têm `overflow-x: hidden` como rede de
+  segurança contra qualquer elemento futuro que vaze da largura da tela.
+  Há um `@media (max-width: 600px)` aumentando o alvo de toque dos botões
+  (~36px → ~43px, perto da recomendação de 44px) e reduzindo a margem dos
+  modais nessa faixa de largura.
 - **Anel de progresso até a próxima coleta** (ao lado do texto "⏱ próxima
   coleta em..."): drena de cheio (acabou de coletar) pra vazio (hora da
   próxima), e muda de cor quando atrasa. Numa tela de monitor sem ninguém
@@ -320,6 +395,19 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   leitura" de "isso travou" — mesma ideia visual do anel do
   enchentes.lab4ge.com, reimplementada do zero (SVG com `pathLength="100"`
   pra poder animar `stroke-dashoffset` em porcentagem direto).
+- **Busca/filtro** (campo acima da grade de estações): filtra os cards por
+  cidade, rio ou UF (substring, sem acentuação especial). Os KPIs do topo
+  continuam refletindo **todas** as estações mesmo com filtro ativo — o
+  filtro é só pra achar um card na tela, não um recorte do resumo geral.
+- **KPI "Maior subida 24h"** (`variacao24hCm` em cada estação do
+  `/api/painel`, calculado por `calcularVariacao24h` em `lib/calculo.js`):
+  compara o nível atual com a leitura mais recente que já tem **pelo menos
+  24h** (`referencia24hBruta` em `api/painel.js`) — não interpola nem pega a
+  leitura mais próxima de qualquer lado; estação sem 24h de histórico ainda
+  (ex.: recém-cadastrada) fica com `variacao24hCm: null` e é ignorada no
+  ranking, em vez de mostrar uma janela que não é realmente de 24h. Só
+  considera variações positivas pro destaque (não faz sentido "maior
+  subida" ser uma descida).
 - **Comparar estações** (botão "📊 Comparar estações" no cabeçalho): abre um
   modal com checkboxes das 14 estações, mesma janela de tempo do histórico
   individual (24h/3d/7d/30d), e desenha uma linha por estação selecionada no
@@ -344,56 +432,18 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   estimativas ⏱/↩, badge da cheia de 2024, linhas do gráfico do histórico)
   — o app acumulou bastante coisa ao longo do tempo, isso ajuda quem não
   acompanhou tudo sendo construído.
-- **Busca/filtro** (campo acima da grade de estações): filtra os cards por
-  cidade, rio ou UF (substring, sem acentuação especial). Os KPIs do topo
-  continuam refletindo **todas** as estações mesmo com filtro ativo — o
-  filtro é só pra achar um card na tela, não um recorte do resumo geral.
-- **KPI "Maior subida 24h"** (`variacao24hCm` em cada estação do
-  `/api/painel`, calculado por `calcularVariacao24h` em `lib/calculo.js`):
-  compara o nível atual com a leitura mais recente que já tem **pelo menos
-  24h** (`referencia24hBruta` em `api/painel.js`) — não interpola nem pega a
-  leitura mais próxima de qualquer lado; estação sem 24h de histórico ainda
-  (ex.: recém-cadastrada) fica com `variacao24hCm: null` e é ignorada no
-  ranking, em vez de mostrar uma janela que não é realmente de 24h. Só
-  considera variações positivas pro destaque (não faz sentido "maior
-  subida" ser uma descida).
-- **Acerto da estimativa de cota** (`public/acerto.html` + `api/acerto.js`;
-  tabela `estimativas_cota`; `registrarEstimativasCota`/`avaliarEstimativasCota`
-  em `lib/coletar.js`; `calcularEtaCota` extraída pra `lib/calculo.js`,
-  compartilhada em espírito com `renderizarEstimativaCota` do painel — a
-  mesma conta reimplementada nos dois lados, já que `public/index.html` é
-  script solto sem bundler e não dá pra importar `lib/`). Ideia veio de
-  analisar o `enchentes.lab4ge.com`, que tem uma página parecida — mas com
-  um escopo bem mais restrito, de propósito:
-  - **Só valida a estimativa "⏱ atinge a cota" / "↩ volta ao normal"**, não
-    a vazão prevista. Motivo: pra validar uma previsão, precisa de uma
-    medição real e independente pra comparar depois — pra vazão a gente só
-    tem modelo (Open-Meteo/GloFAS), nenhuma medição real, então "validar"
-    isso seria só comparar um resultado do modelo com outro resultado do
-    mesmo modelo. Pra estimativa de cota, a gente tem: ela é extrapolação
-    da nossa própria telemetria de nível, e depois dá pra conferir contra
-    o nível **real** medido depois — validação de verdade.
-  - Cada vez que a coleta roda (`registrarEstimativasCota`), se a estação
-    está subindo/descendo o bastante pra gerar uma estimativa e **não**
-    existe uma "em aberto" ainda pra ela, arquiva: nível e velocidade no
-    momento, `alvo_nivel` (a cota, ou 60% dela), horas estimadas, e o
-    horário-alvo (`alvo_em`). Só uma em aberto por estação por vez — senão
-    uma subida de várias horas geraria uma linha quase idêntica a cada 15
-    min.
-  - Quando o prazo vence (`alvo_em` + tolerância — 20% do horizonte
-    estimado, entre 1h e 12h), `avaliarEstimativasCota` confere se alguma
-    leitura real da estação cruzou o `alvo_nivel` dentro da janela
-    `[previsto_em, alvo_em + tolerância]`. Cruzou = "acertou" (com
-    `erro_horas` = diferença entre o cruzamento real e o horário previsto).
-    Não cruzou (seja porque ainda não tinha chegado lá, seja porque a
-    tendência reverteu antes) = "errou" — as duas situações contam igual,
-    porque na hora H a estimativa não teria ajudado quem confiasse nela.
-  - `/api/acerto` agrupa por antecedência (até 6h / 6–24h / mais de 24h) —
-    a expectativa razoável é a taxa cair conforme o horizonte cresce, já
-    que a extrapolação usa só as duas últimas leituras (bem sensível a
-    ruído, como documentado em `calcularEtaCota`); um resultado "ruim" pras
-    janelas longas não é bug, é o preço honesto de uma extrapolação simples
-    tentando prever longe.
+- **Histórico de alertas** aparece no painel principal (não só no banco),
+  puxando `/api/alertas` — até 30 mudanças de status mais recentes.
+  `registrarAlertas` (`lib/coletar.js`) grava tanto a entrada num status de
+  risco (atenção/alerta/alagado) quanto a **volta ao normal** — só não
+  grava a primeira leitura de uma estação que já nasce normal (senão toda
+  estação tranquila desde sempre ganharia uma linha "normal" à toa).
+- **Exportar CSV**: no modal de histórico de uma estação, o botão gera o CSV
+  no navegador a partir dos dados já carregados pro gráfico (`medido_em,
+  nivel_m`) — não é uma rota nova no backend.
+- **Recorde histórico** no gráfico de uma estação: `/api/historico` retorna
+  `recorde` (maior nível já registrado, de toda a série — não só a janela
+  aberta), desenhado como uma segunda linha tracejada além da cota.
 
 ## Testes
 
