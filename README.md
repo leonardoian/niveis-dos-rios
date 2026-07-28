@@ -251,6 +251,16 @@ misturar reorganização com mudança de comportamento): o `@media (max-width:
 antes da refatoração. Se fizer sentido igualar, dá pra mover pra `base.css`
 depois, como mudança separada.
 
+### Vercel Analytics
+
+As 3 páginas carregam `<script defer src="/_vercel/insights/script.js">`
+antes do `</body>`. Não é o pacote `@vercel/analytics` (esse é pra projetos
+React/Next.js) — é a versão "vanilla" pra site estático: o próprio Vercel
+serve esse script automaticamente pra qualquer projeto com Web Analytics
+habilitado no dashboard, sem precisar instalar nada nem mudar o build. Só
+funciona depois de deployado no Vercel (localmente ou noutro host, o
+`<script>` simplesmente falha em carregar, sem quebrar o resto da página).
+
 ### Como os números são calculados
 
 - **Cota de inundação** não vem do feed. Fica fixa na tabela `estacoes`; para
