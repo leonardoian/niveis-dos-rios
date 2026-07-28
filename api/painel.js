@@ -30,6 +30,7 @@ export default async function handler(req, res) {
         e.cota_inundacao,
         e.nivel_cheia_2024,
         e.data_cheia_2024,
+        e.nota,
         a.nivel        AS nivel_atual,
         a.medido_em    AS medido_em,
         p.nivel        AS nivel_anterior,
@@ -141,6 +142,7 @@ export default async function handler(req, res) {
           nivel: Number(r.nivel_cheia_2024),
           data: r.data_cheia_2024,
         },
+        nota: r.nota,
       };
     });
 
@@ -154,10 +156,22 @@ export default async function handler(req, res) {
       if (ultimaColeta === null || t > ultimaColeta) ultimaColeta = t;
     }
 
+    // Horário da última atualização bem-sucedida de vazão/clima (Open-Meteo),
+    // entre todas as estações — usado no rodapé pra mostrar a saúde dessa
+    // fonte separada da fonte de nível. Throttle é de 6h (ver lib/coletar.js),
+    // então "atrasado" aqui precisa de um limiar bem maior que o de frescor.
+    const [{ ultima_previsao: ultimaPrevisaoBruta }] = await sql`
+      SELECT MAX(gerado_em) AS ultima_previsao
+      FROM previsoes
+      WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
+    `;
+    const ultimaPrevisao = ultimaPrevisaoBruta === null ? null : new Date(ultimaPrevisaoBruta).toISOString();
+
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     return res.status(200).json({
       atualizadoEm: new Date().toISOString(),
       ultimaColeta: ultimaColeta === null ? null : new Date(ultimaColeta).toISOString(),
+      ultimaPrevisao,
       resumo: {
         total: estacoes.length,
         emAlerta: comDado.filter((e) => e.status === 'alerta').length,

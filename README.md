@@ -276,6 +276,43 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   desastre, não o pico real; melhor não mostrar do que mostrar errado).
   Pra ajustar/completar esses valores no futuro, edite a carga inicial em
   `schema.sql` e rode o script de novo (idempotente).
+- **Régua de Porto Alegre/Guaíba corrigida** (coluna `nota` em `estacoes`,
+  achado analisando um site parecido de um amigo — https://enchentes.lab4ge.com/
+  — e confirmado direto na fonte oficial da ANA, não só no site dele): em
+  03/05/2024 a ANA e o SGB recalibraram a série da Usina do Gasômetro
+  (código 87450020), subtraindo **1,18 m** de todas as leituras (passadas e
+  futuras) pra alinhar ao referencial nacional IBGE 1788A. Isso mudou dois
+  números que estavam errados pra essa régua:
+  - `cota_inundacao`: era 3,00 m — que na verdade é a referência **pública**
+    de inundação, medida no **Cais Mauá** (fonte: prefeitura.poa.br/dmae),
+    um local diferente da estação que a gente realmente lê. O equivalente
+    na régua atual do Gasômetro é **2,42 m** — confirmado batendo nosso
+    nível ao vivo (1,14 m) com o da ANA/SGB no mesmo minuto exato.
+  - `nivel_cheia_2024`: era 5,35 m (régua emergencial usada durante a
+    própria enchente) — convertido pra série atual é **4,17 m** (5,35 −
+    1,18), valor que a nota técnica da ANA cita explicitamente.
+  A coluna `nota` (texto livre, pensada pra reaproveitar em qualquer outra
+  estação que precisar de uma ressalva parecida) guarda essa explicação
+  completa com as fontes, mostrada como ícone "ⓘ" ao lado da cota no card e
+  como aviso no modal de histórico — pra quem cruzar com uma notícia que
+  cita "3 metros" ou "5,35 m" não achar que a gente inventou um número
+  diferente.
+- **Status de saúde das fontes** (rodapé, `renderizarStatusFontes` em
+  `public/index.html`; campo novo `ultimaPrevisao` em `/api/painel`, MAX
+  de `previsoes.gerado_em`): mostra, à parte do frescor por estação, se as
+  duas fontes externas (feed de nível do nivelguaiba.com.br e
+  vazão/clima da Open-Meteo) estão respondendo — com limiares próprios pra
+  cada uma (nível: ok ≤20min, atrasado ≤1h; previsão: ok ≤8h, atrasado
+  ≤24h, já que ela só atualiza a cada 6h por design). Pensado pra flagrar
+  rápido se uma fonte parar de vez, sem precisar abrir os 14 cards um por
+  um.
+- **Anel de progresso até a próxima coleta** (ao lado do texto "⏱ próxima
+  coleta em..."): drena de cheio (acabou de coletar) pra vazio (hora da
+  próxima), e muda de cor quando atrasa. Numa tela de monitor sem ninguém
+  interagindo, ajuda a distinguir "tá tudo bem, só esperando a próxima
+  leitura" de "isso travou" — mesma ideia visual do anel do
+  enchentes.lab4ge.com, reimplementada do zero (SVG com `pathLength="100"`
+  pra poder animar `stroke-dashoffset` em porcentagem direto).
 - **Comparar estações** (botão "📊 Comparar estações" no cabeçalho): abre um
   modal com checkboxes das 14 estações, mesma janela de tempo do histórico
   individual (24h/3d/7d/30d), e desenha uma linha por estação selecionada no

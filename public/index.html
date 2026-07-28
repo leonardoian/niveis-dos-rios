@@ -72,6 +72,10 @@
   header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
   h1 { font-size: 20px; font-weight: 600; }
   .sub { font-size: 13px; color: var(--txt3); margin-top: 2px; }
+  .sub.proxima { display: flex; align-items: center; gap: 6px; }
+  .sub.proxima[hidden] { display: none; }
+  .anel-atualizacao { width: 13px; height: 13px; flex-shrink: 0; }
+  #anelProgresso { transition: stroke-dashoffset 1s linear, stroke .3s; }
   .acoes { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   select, button {
     font: inherit; font-size: 13px; padding: 7px 12px;
@@ -135,6 +139,7 @@
   .clima { font-size: 12px; color: var(--txt2); margin-top: 4px; }
   .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
   .cheia2024 { font-size: 11px; color: var(--txt3); margin-top: 4px; cursor: help; }
+  .nota-info { cursor: help; color: var(--txt3); }
   .meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 11px; color: var(--txt3); }
   .frescor { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
   .aviso { background: var(--aviso-bg); border: 1px solid var(--aviso-border); color: var(--aviso-txt); padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
@@ -143,6 +148,9 @@
   .rodape-fontes p:first-child { margin-top: 0; }
   .rodape-fontes b { color: var(--txt2); }
   .rodape-fontes a { color: var(--txt2); }
+  .status-fontes { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 10px; }
+  .status-fonte { display: inline-flex; align-items: center; }
+  .status-fonte .frescor { margin-right: 5px; }
 
   .secao-titulo { font-size: 15px; font-weight: 600; margin: 28px 0 10px; }
   .lista-alertas { background: var(--card); border: 1px solid var(--linha); border-radius: 12px; overflow: hidden; }
@@ -184,6 +192,7 @@
   .ajuda-item .tag { margin: 0 2px; }
   .ajuda-item .frescor { margin-right: 2px; }
   .estimativa-cota { font-size: 12px; margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg); }
+  .modal-nota { font-size: 12px; margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--aviso-bg); color: var(--aviso-txt); border: 1px solid var(--aviso-border); }
   .estimativa-cota.subindo { color: #a32d2d; }
   .estimativa-cota.descendo { color: #3b6d11; }
   .estimativa-cota:empty { display: none; padding: 0; margin: 0; }
@@ -279,7 +288,15 @@
     <div>
       <h1>Níveis dos rios — Bacia do Guaíba</h1>
       <p class="sub" id="sub">Carregando…</p>
-      <p class="sub" id="proxColeta"></p>
+      <p class="sub proxima" id="proxColeta" hidden>
+        <svg class="anel-atualizacao" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="var(--linha)" stroke-width="2"/>
+          <circle id="anelProgresso" cx="12" cy="12" r="9" fill="none" stroke="var(--txt3)"
+                  stroke-width="2" stroke-linecap="round" pathLength="100"
+                  stroke-dasharray="100" stroke-dashoffset="0" transform="rotate(-90 12 12)"/>
+        </svg>
+        <span id="proxColetaTexto"></span>
+      </p>
     </div>
     <div class="acoes">
       <select id="ordem">
@@ -317,6 +334,7 @@
   <div class="lista-alertas" id="listaAlertas">Carregando…</div>
 
   <footer class="rodape-fontes">
+    <div class="status-fontes" id="statusFontes"></div>
     <p><b>Não é sistema oficial de alerta.</b> Em emergência, acione a Defesa
        Civil (199) ou os Bombeiros (193).</p>
     <p>Dados via <a href="https://nivelguaiba.com.br" target="_blank" rel="noopener">nivelguaiba.com.br</a>,
@@ -339,6 +357,7 @@
       </div>
       <button class="modal-fechar" id="modalFechar" aria-label="Fechar">✕</button>
     </div>
+    <p class="modal-nota" id="modalNota" hidden></p>
     <p class="estimativa-cota" id="estimativaCota"></p>
     <div class="modal-janelas">
       <button class="janela-btn" data-horas="24">24h</button>
@@ -589,17 +608,30 @@ function iniciarContagemColeta(ultimaColetaIso) {
   clearInterval(timerColeta);
   const el = document.getElementById('proxColeta');
   if (!ultimaColetaIso) {
-    if (el) el.textContent = '';
+    if (el) el.hidden = true;
     proximaColetaEm = null;
     return;
   }
+  if (el) el.hidden = false;
   proximaColetaEm = new Date(ultimaColetaIso).getTime() + INTERVALO_COLETA_MS;
   atualizarContagem();
   timerColeta = setInterval(atualizarContagem, 1000);
 }
 
+// O anel drena de cheio (acabou de coletar) pra vazio (hora da próxima
+// coleta) — igual a uma contagem regressiva visual. Numa tela de monitor
+// sem ninguém interagindo, é o que distingue "rio estável, só esperando
+// a próxima leitura" de "isso travou".
+function atualizarAnelProgresso(fracaoDecorrida, atrasado) {
+  const anel = document.getElementById('anelProgresso');
+  if (!anel) return;
+  const offset = Math.max(0, Math.min(100, fracaoDecorrida * 100));
+  anel.setAttribute('stroke-dashoffset', atrasado ? 0 : String(offset));
+  anel.setAttribute('stroke', atrasado ? CORES.atencao : 'var(--txt3)');
+}
+
 function atualizarContagem() {
-  const el = document.getElementById('proxColeta');
+  const el = document.getElementById('proxColetaTexto');
   if (!el || proximaColetaEm === null) return;
 
   const restante = proximaColetaEm - Date.now();
@@ -608,12 +640,14 @@ function atualizarContagem() {
     el.textContent = atrasoMin < 1
       ? '⏱ atualizando a qualquer momento'
       : `⏱ atrasado ${atrasoMin} min`;
+    atualizarAnelProgresso(1, true);
     return;
   }
 
   const min = String(Math.floor(restante / 60000)).padStart(2, '0');
   const seg = String(Math.floor((restante % 60000) / 1000)).padStart(2, '0');
   el.textContent = `⏱ próxima coleta em ${min}:${seg}`;
+  atualizarAnelProgresso(1 - restante / INTERVALO_COLETA_MS, false);
 }
 
 async function carregar() {
@@ -627,6 +661,7 @@ async function carregar() {
     document.getElementById('aviso').innerHTML = '';
     render();
     iniciarContagemColeta(dados.ultimaColeta);
+    renderizarStatusFontes();
   } catch (e) {
     document.getElementById('aviso').innerHTML =
       '<div class="aviso">Não foi possível carregar os dados: ' + e.message + '</div>';
@@ -652,6 +687,48 @@ function formatarDataSimples(data) {
   if (!data) return '—';
   const dataSimples = String(data).slice(0, 10);
   return new Date(dataSimples + 'T12:00:00').toLocaleDateString('pt-BR');
+}
+
+function formatarIdade(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 60) return `${min} min`;
+  const horas = Math.round(min / 60);
+  if (horas < 48) return `${horas}h`;
+  return `${Math.round(horas / 24)} dias`;
+}
+
+// Status de uma FONTE (não de uma estação) — mesma ideia do frescor por
+// leitura, mas com limiares próprios: a previsão só atualiza a cada 6h por
+// design (ver lib/coletar.js), então usar o limiar de 1h do frescor
+// acusaria "obsoleto" o tempo todo, mesmo funcionando normal.
+function calcularStatusFonte(iso, limiarOkMs, limiarAtrasadoMs) {
+  if (!iso) return 'sem_dado';
+  const idadeMs = Date.now() - new Date(iso).getTime();
+  if (idadeMs <= limiarOkMs) return 'ao_vivo';
+  if (idadeMs <= limiarAtrasadoMs) return 'atrasado';
+  return 'obsoleto';
+}
+
+// ---- Status de saúde das fontes (rodapé) ----
+// Diferente do frescor por estação (que é "essa leitura está velha?"), isso
+// é "a fonte como um todo está respondendo?" — pra flagrar rápido se o feed
+// ou a Open-Meteo pararem de vez, sem precisar abrir cada card.
+function renderizarStatusFontes() {
+  const el = document.getElementById('statusFontes');
+  if (!el) return;
+  if (!dados) { el.innerHTML = ''; return; }
+
+  const fontes = [
+    { rotulo: 'Nível dos rios', detalhe: 'nivelguaiba.com.br', iso: dados.ultimaColeta, limiarOk: 20 * 60000, limiarAtrasado: 60 * 60000 },
+    { rotulo: 'Vazão e clima previstos', detalhe: 'Open-Meteo', iso: dados.ultimaPrevisao, limiarOk: 8 * 3600000, limiarAtrasado: 24 * 3600000 },
+  ];
+
+  el.innerHTML = fontes.map((f) => {
+    const status = calcularStatusFonte(f.iso, f.limiarOk, f.limiarAtrasado);
+    const cor = CORES[FRESCOR_PARA_COR[status]];
+    const texto = status === 'sem_dado' ? 'sem dado ainda' : `atualizado há ${formatarIdade(Date.now() - new Date(f.iso).getTime())}`;
+    return `<span class="status-fonte" title="${f.detalhe}"><span class="frescor" style="background:${cor}"></span>${f.rotulo}: ${texto}</span>`;
+  }).join('');
 }
 
 // Extrapolação linear simples da tendência MEDIDA agora (cm/h) — usada
@@ -779,7 +856,7 @@ function card(e) {
     ${spark}
     <div class="barra"><i style="width:${pct}%;background:${cor}"></i></div>
     <div class="rodape">
-      <span>Cota ${e.cota.toFixed(2)} m</span>
+      <span>Cota ${e.cota.toFixed(2)} m${e.nota ? ` <span class="nota-info" title="${e.nota.replace(/"/g, '&quot;')}">ⓘ</span>` : ''}</span>
       <span>${margem}</span>
     </div>
     ${cheia2024Html}
@@ -957,6 +1034,9 @@ function abrirHistorico(slug) {
   slugAtual = slug;
   document.getElementById('modalCidade').textContent = estacao.cidade + '/' + estacao.uf;
   document.getElementById('modalRio').textContent = estacao.rio;
+  const notaEl = document.getElementById('modalNota');
+  notaEl.hidden = !estacao.nota;
+  notaEl.textContent = estacao.nota ? 'ⓘ ' + estacao.nota : '';
   document.getElementById('modalOverlay').hidden = false;
   document.body.style.overflow = 'hidden';
   selecionarJanela(24);
@@ -1054,6 +1134,8 @@ function fecharHistorico() {
   document.getElementById('prevTendencia').innerHTML = '';
   document.getElementById('estimativaCota').textContent = '';
   document.getElementById('estimativaCota').className = 'estimativa-cota';
+  document.getElementById('modalNota').hidden = true;
+  document.getElementById('modalNota').textContent = '';
 }
 
 function selecionarJanela(horas) {

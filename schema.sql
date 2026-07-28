@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS estacoes (
     lat             NUMERIC(9,6),               -- sede da cidade (fonte: Wikipédia), usada na previsão de vazão
     lon             NUMERIC(9,6),
     nivel_cheia_2024 NUMERIC(7,2),              -- pico da enchente de maio/2024, mesma régua da estação
-    data_cheia_2024  DATE                       -- NULL quando não há registro consolidado confiável
+    data_cheia_2024  DATE,                      -- NULL quando não há registro consolidado confiável
+    nota             TEXT                       -- ressalva livre sobre a régua/cota dessa estação (ver Porto Alegre)
 );
 
 -- Idempotente: garante as colunas em bancos que rodaram este script antes
@@ -27,6 +28,7 @@ ALTER TABLE estacoes ADD COLUMN IF NOT EXISTS lat NUMERIC(9,6);
 ALTER TABLE estacoes ADD COLUMN IF NOT EXISTS lon NUMERIC(9,6);
 ALTER TABLE estacoes ADD COLUMN IF NOT EXISTS nivel_cheia_2024 NUMERIC(7,2);
 ALTER TABLE estacoes ADD COLUMN IF NOT EXISTS data_cheia_2024 DATE;
+ALTER TABLE estacoes ADD COLUMN IF NOT EXISTS nota TEXT;
 
 -- Série histórica de leituras.
 -- UNIQUE evita duplicar a mesma medição quando o cron roda e o feed não mudou.
@@ -99,22 +101,36 @@ CREATE INDEX IF NOT EXISTS idx_previsoes_slug_dia
 --     quase certamente não é o pico real, e sim o maior valor captado por
 --     uma estação que só entrou em operação depois do auge do desastre.
 --     Melhor não mostrar do que mostrar um dado enganoso.
+--
+-- Porto Alegre é um caso à parte: em 03/05/2024 a ANA e o SGB recalibraram
+-- a série da Usina do Gasômetro (código 87450020), subtraindo 1,18 m de
+-- TODAS as leituras (passadas e futuras) pra alinhar ao referencial
+-- nacional IBGE 1788A — confirmado direto na nota técnica oficial da ANA,
+-- não só no site do amigo que serviu de pista. Isso muda dois números:
+--   - cota_inundacao: 3,00 m era a referência pública (Cais Mauá, outro
+--     local/régua); nesta série (Gasômetro, a que a gente realmente lê)
+--     o equivalente é 2,42 m — confirmado batendo nosso nível ao vivo
+--     (1,14 m) com o da ANA/SGB no mesmo minuto exato.
+--   - nivel_cheia_2024: era 5,35 m (régua emergencial antiga); convertido
+--     pra série atual é 4,17 m (5,35 − 1,18), valor que a própria ANA cita.
+-- Ver nota da estação e README pra fontes e o texto completo da ressalva.
 -- ============================================================
-INSERT INTO estacoes (slug, cidade, rio, estacao, cota_inundacao, ordem, lat, lon, nivel_cheia_2024, data_cheia_2024) VALUES
-    ('portoalegre',       'Porto Alegre',          'Guaíba',           'Usina do Gasômetro',                 3.00,  1, -30.032780, -51.230000,  5.35, '2024-05-05'),
-    ('saoleopoldo',       'São Leopoldo',          'Rio dos Sinos',    'Ponte 25 de Julho',                  4.50,  2, -29.760000, -51.146940,  8.09, '2024-05-04'),
-    ('lajeado',           'Lajeado',               'Rio Taquari',      'Arroio do Meio/Lajeado',            19.00,  3, -29.466940, -51.960830, 33.66, '2024-05-02'),
-    ('bomretirodosul',    'Bom Retiro do Sul',     'Rio Taquari',      'Montante',                          19.00,  4, -29.608890, -51.942780, 21.74, '2024-05-02'),
-    ('cachoeiradosul',    'Cachoeira do Sul',      'Rio Jacuí',        'Passo São Lourenço',                18.00,  5, -30.038900, -52.893900,  NULL,  NULL),
-    ('donafrancisca',     'Dona Francisca',        'Rio Jacuí',        NULL,                                 7.50,  6, -29.621940, -53.356940,  9.48, '2024-05-12'),
-    ('encantado',         'Encantado',             'Rio Alto Taquari', 'Usina Hidrelétrica Dona Francisca', 12.00,  7, -29.235830, -51.870000,  NULL,  NULL),
-    ('feliz',             'Feliz',                 'Rio Caí',          NULL,                                 9.00,  8, -29.450830, -51.305830,  9.93, '2024-05-12'),
-    ('gravatai',          'Gravataí',              'Rio Gravataí',     'Passo das Canoas',                   4.75,  9, -29.943890, -50.991940,  6.23, '2024-05-07'),
-    ('mucum',             'Muçum',                 'Rio Alto Taquari', NULL,                                18.00, 10, -29.167000, -51.883000, 25.57, '2024-05-02'),
-    ('riopardo',          'Rio Pardo',             'Rio Jacuí',        'Rio Pardo',                         12.50, 11, -29.989720, -52.378060, 20.04, '2024-05-05'),
-    ('saosebastiaodocai', 'São Sebastião do Caí',  'Rio Caí',          'Barca do Caí',                      10.00, 12, -29.586940, -51.375830, 15.80, '2024-05-13'),
-    ('taquara',           'Taquara',               'Rio dos Sinos',    NULL,                                 6.00, 13, -29.650560, -50.780560, 10.68, '2024-05-02'),
-    ('rocasales',         'Roca Sales',            'Rio Alto Taquari', NULL,                                18.00, 14, -29.283000, -51.867000,  NULL,  NULL)
+INSERT INTO estacoes (slug, cidade, rio, estacao, cota_inundacao, ordem, lat, lon, nivel_cheia_2024, data_cheia_2024, nota) VALUES
+    ('portoalegre',       'Porto Alegre',          'Guaíba',           'Usina do Gasômetro',                 2.42,  1, -30.032780, -51.230000,  4.17, '2024-05-05',
+     'Cota e pico de 2024 ajustados pra régua ATUAL da Usina do Gasômetro (não é a régua da maioria das notícias). Em 03/05/2024 a ANA e o SGB recalibraram essa série, subtraindo 1,18 m de todas as leituras pra alinhar ao referencial nacional IBGE 1788A — por isso o pico da cheia de maio/2024 aqui é 4,17 m, não os 5,35 m mais divulgados (mesma medição, régua diferente). A cota de inundação "oficial" mais conhecida, 3,00 m, é medida no Cais Mauá, não na Usina do Gasômetro — o equivalente dela nesta régua é 2,42 m. Fontes: gov.br/ana (nota técnica da readequação) e prefeitura.poa.br/dmae (referência do Cais Mauá).'),
+    ('saoleopoldo',       'São Leopoldo',          'Rio dos Sinos',    'Ponte 25 de Julho',                  4.50,  2, -29.760000, -51.146940,  8.09, '2024-05-04', NULL),
+    ('lajeado',           'Lajeado',               'Rio Taquari',      'Arroio do Meio/Lajeado',            19.00,  3, -29.466940, -51.960830, 33.66, '2024-05-02', NULL),
+    ('bomretirodosul',    'Bom Retiro do Sul',     'Rio Taquari',      'Montante',                          19.00,  4, -29.608890, -51.942780, 21.74, '2024-05-02', NULL),
+    ('cachoeiradosul',    'Cachoeira do Sul',      'Rio Jacuí',        'Passo São Lourenço',                18.00,  5, -30.038900, -52.893900,  NULL,  NULL, NULL),
+    ('donafrancisca',     'Dona Francisca',        'Rio Jacuí',        NULL,                                 7.50,  6, -29.621940, -53.356940,  9.48, '2024-05-12', NULL),
+    ('encantado',         'Encantado',             'Rio Alto Taquari', 'Usina Hidrelétrica Dona Francisca', 12.00,  7, -29.235830, -51.870000,  NULL,  NULL, NULL),
+    ('feliz',             'Feliz',                 'Rio Caí',          NULL,                                 9.00,  8, -29.450830, -51.305830,  9.93, '2024-05-12', NULL),
+    ('gravatai',          'Gravataí',              'Rio Gravataí',     'Passo das Canoas',                   4.75,  9, -29.943890, -50.991940,  6.23, '2024-05-07', NULL),
+    ('mucum',             'Muçum',                 'Rio Alto Taquari', NULL,                                18.00, 10, -29.167000, -51.883000, 25.57, '2024-05-02', NULL),
+    ('riopardo',          'Rio Pardo',             'Rio Jacuí',        'Rio Pardo',                         12.50, 11, -29.989720, -52.378060, 20.04, '2024-05-05', NULL),
+    ('saosebastiaodocai', 'São Sebastião do Caí',  'Rio Caí',          'Barca do Caí',                      10.00, 12, -29.586940, -51.375830, 15.80, '2024-05-13', NULL),
+    ('taquara',           'Taquara',               'Rio dos Sinos',    NULL,                                 6.00, 13, -29.650560, -50.780560, 10.68, '2024-05-02', NULL),
+    ('rocasales',         'Roca Sales',            'Rio Alto Taquari', NULL,                                18.00, 14, -29.283000, -51.867000,  NULL,  NULL, NULL)
 ON CONFLICT (slug) DO UPDATE SET
     cidade            = EXCLUDED.cidade,
     rio               = EXCLUDED.rio,
@@ -124,4 +140,5 @@ ON CONFLICT (slug) DO UPDATE SET
     lat               = EXCLUDED.lat,
     lon               = EXCLUDED.lon,
     nivel_cheia_2024  = EXCLUDED.nivel_cheia_2024,
-    data_cheia_2024   = EXCLUDED.data_cheia_2024;
+    data_cheia_2024   = EXCLUDED.data_cheia_2024,
+    nota              = EXCLUDED.nota;
