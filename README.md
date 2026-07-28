@@ -241,6 +241,10 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
   (chave `tema`), que passa a valer independente do sistema.
 - **Histórico de alertas** aparece no painel principal (não só no banco),
   puxando `/api/alertas` — até 30 mudanças de status mais recentes.
+  `registrarAlertas` (`lib/coletar.js`) grava tanto a entrada num status de
+  risco (atenção/alerta/alagado) quanto a **volta ao normal** — só não
+  grava a primeira leitura de uma estação que já nasce normal (senão toda
+  estação tranquila desde sempre ganharia uma linha "normal" à toa).
 - **Exportar CSV**: no modal de histórico de uma estação, o botão gera o CSV
   no navegador a partir dos dados já carregados pro gráfico (`medido_em,
   nivel_m`) — não é uma rota nova no backend.
