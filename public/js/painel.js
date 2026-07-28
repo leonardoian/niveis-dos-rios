@@ -1138,3 +1138,10 @@ document.getElementById('modalAjudaOverlay').addEventListener('click', (ev) => {
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && !document.getElementById('modalAjudaOverlay').hidden) fecharAjuda();
 });
+
+// ---- Intro (logo + nome, ~1.4s) ----
+// Clicar/tocar em qualquer lugar pula direto pro painel, pra quem já
+// conhece o app e não quer esperar a animação toda vez que abre.
+document.getElementById('intro').addEventListener('click', () => {
+  document.getElementById('intro').style.display = 'none';
+});

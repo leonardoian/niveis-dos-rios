@@ -404,6 +404,15 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
 
 ### Interface do painel
 
+- **Intro** (`#intro` em `index.html`, CSS puro em `painel.css` — sem JS
+  além do clique pra pular): logo (ícone do PWA, `icons/icon-192.png`) +
+  nome do projeto, entra escalonado e some sozinha em ~1,4s. Só em
+  `index.html` — `bacia.html`/`acerto.html` normalmente são abertos a
+  partir de lá, então repetir a intro ali seria repetitivo. Não atrasa o
+  carregamento real: `carregar()` já roda em paralelo por baixo da
+  animação. Clicar em qualquer lugar pula na hora; respeita
+  `prefers-reduced-motion` (nem aparece, pra quem configurou o SO pra
+  reduzir animação).
 - **Tema claro/escuro**: segue `prefers-color-scheme` do sistema por padrão;
   o botão 🌙/☀️ no cabeçalho fixa uma preferência manual em `localStorage`
   (chave `tema`), que passa a valer independente do sistema.
