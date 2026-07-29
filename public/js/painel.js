@@ -381,7 +381,7 @@ function render() {
   const comSubida24h = dados.estacoes.filter((e) => e.variacao24hCm !== null && e.variacao24hCm > 0);
   const maiorSubida = comSubida24h.reduce((maior, e) => (!maior || e.variacao24hCm > maior.variacao24hCm ? e : maior), null);
   document.getElementById('k-subida24h').textContent = maiorSubida
-    ? `${maiorSubida.cidade} +${maiorSubida.variacao24hCm.toFixed(0)}cm`
+    ? `${maiorSubida.cidade} +${(maiorSubida.variacao24hCm / 100).toFixed(2)} m`
     : '—';
 
   document.getElementById('sub').textContent =
