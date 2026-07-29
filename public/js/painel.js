@@ -1137,6 +1137,47 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && !document.getElementById('modalAjudaOverlay').hidden) fecharAjuda();
 });
 
+// ---- Menu lateral de ações (celular) ----
+// A barra de ações (ordenar, atualizar, mapa, PDF, comparar, ajuda...) não
+// cabe numa linha só em telas pequenas — no desktop continua uma barra
+// normal (ver painel.css), no celular vira uma gaveta lateral aberta pelo
+// ☰. Fecha ao clicar fora, no ✕, em Esc, ou em qualquer botão de ação lá
+// dentro (a própria ação — abrir modal, navegar, etc. — já dá o feedback).
+const menuToggle = document.getElementById('menuToggle');
+const menuFechar = document.getElementById('menuFechar');
+const acoesEl = document.getElementById('acoes');
+const menuOverlay = document.getElementById('menuOverlay');
+
+function menuAberto() {
+  return acoesEl.classList.contains('aberto');
+}
+
+function abrirMenu() {
+  menuOverlay.hidden = false;
+  requestAnimationFrame(() => {
+    acoesEl.classList.add('aberto');
+    menuOverlay.classList.add('aberto');
+  });
+  menuToggle.setAttribute('aria-expanded', 'true');
+}
+
+function fecharMenu() {
+  acoesEl.classList.remove('aberto');
+  menuOverlay.classList.remove('aberto');
+  menuToggle.setAttribute('aria-expanded', 'false');
+  setTimeout(() => { if (!menuAberto()) menuOverlay.hidden = true; }, 250);
+}
+
+menuToggle.addEventListener('click', () => (menuAberto() ? fecharMenu() : abrirMenu()));
+menuFechar.addEventListener('click', fecharMenu);
+menuOverlay.addEventListener('click', fecharMenu);
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && menuAberto()) fecharMenu();
+});
+acoesEl.addEventListener('click', (ev) => {
+  if (ev.target.closest('button') && ev.target.id !== 'menuFechar') fecharMenu();
+});
+
 // ---- Intro (logo + nome, ~1.4s) ----
 // Clicar/tocar em qualquer lugar pula direto pro painel, pra quem já
 // conhece o app e não quer esperar a animação toda vez que abre.

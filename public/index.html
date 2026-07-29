@@ -37,7 +37,9 @@
         <span id="proxColetaTexto"></span>
       </p>
     </div>
-    <div class="acoes">
+    <button id="menuToggle" class="menu-toggle" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="acoes">☰</button>
+    <div class="acoes" id="acoes">
+      <button id="menuFechar" class="menu-fechar" type="button" aria-label="Fechar menu">✕</button>
       <select id="ordem">
         <option value="risco">Ordenar por risco</option>
         <option value="cidade">Ordenar por cidade</option>
@@ -56,6 +58,7 @@
       <button id="compararToggle" type="button" title="Comparar várias estações no mesmo gráfico">📊 Comparar estações</button>
       <button id="ajudaToggle" type="button" title="O que significa cada ícone e cor">❓ Ajuda</button>
     </div>
+    <div class="menu-overlay" id="menuOverlay" hidden></div>
   </header>
 
   <div id="aviso"></div>

@@ -54,6 +54,12 @@ header { display: flex; justify-content: space-between; align-items: flex-start;
 .anel-atualizacao { width: 13px; height: 13px; flex-shrink: 0; }
 #anelProgresso { transition: stroke-dashoffset 1s linear, stroke .3s; }
 .acoes { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.menu-toggle, .menu-fechar { display: none; }
+.menu-overlay {
+  position: fixed; inset: 0; background: var(--overlay); z-index: 45;
+  opacity: 0; pointer-events: none; transition: opacity .25s ease;
+}
+.menu-overlay.aberto { opacity: 1; pointer-events: auto; }
 select {
   font: inherit; font-size: 13px; padding: 7px 12px;
   border: 1px solid var(--linha); border-radius: 7px;
@@ -204,6 +210,7 @@ body.apresentacao .cidade { font-size: 18px; }
 /* Gerar PDF (botão): esconde controles/seções que não fazem parte do
    banner antes de tirar a "foto" com html2canvas. */
 body.gerando-pdf header .acoes,
+body.gerando-pdf .menu-toggle,
 body.gerando-pdf #proxColeta,
 body.gerando-pdf #aviso,
 body.gerando-pdf .secao-titulo,
@@ -231,6 +238,7 @@ body.gerando-pdf .rodape-fontes {
   @page { size: landscape; margin: 10mm; }
   body { padding: 0; }
   header .acoes,
+  .menu-toggle,
   #proxColeta,
   #aviso,
   .secao-titulo,
@@ -250,4 +258,30 @@ body.gerando-pdf .rodape-fontes {
   .janela-btn { padding: 9px 14px; }
   .modal { padding: 16px; max-height: 95vh; }
   .modal-overlay { padding: 10px; }
+}
+
+/* Celular: a barra de ações do painel principal (ordenar, atualizar, mapa,
+   PDF, comparar, ajuda...) não cabe numa linha só — vira um menu lateral
+   (gaveta) aberto pelo ☰, em vez de embolar/quebrar em várias linhas. */
+@media (max-width: 640px) {
+  header { align-items: center; }
+  .menu-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; padding: 0; font-size: 18px; flex-shrink: 0;
+  }
+  .acoes {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(78vw, 300px);
+    background: var(--card); border-left: 1px solid var(--linha);
+    flex-direction: column; flex-wrap: nowrap; align-items: stretch;
+    gap: 10px; padding: 56px 16px 20px;
+    transform: translateX(100%); transition: transform .25s ease;
+    z-index: 46; overflow-y: auto; box-shadow: -6px 0 24px var(--sombra);
+  }
+  .acoes.aberto { transform: translateX(0); }
+  .acoes select, .acoes button, .acoes .link-bacia { width: 100%; }
+  .acoes .link-bacia { display: block; }
+  .acoes button.menu-fechar {
+    display: block; position: absolute; top: 10px; right: 12px;
+    width: 34px; height: 34px; padding: 0; font-size: 16px;
+  }
 }
