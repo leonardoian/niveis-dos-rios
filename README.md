@@ -223,6 +223,65 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 
 ## Notas
 
+### Segurança
+
+Revisão feita cobrindo os ~20 pontos de acesso ao banco, os 3 HTML/JS do
+front, dependências, segredos e cabeçalhos HTTP do site publicado. O que
+achamos e corrigimos:
+
+- **`/api/coletar` falhava aberto sem `CRON_SECRET`.** O código antigo era
+  `if (segredo && autorizacao !== ...)` — se a variável de ambiente não
+  existisse no Vercel, a checagem inteira era pulada e a rota (que dispara
+  coleta e grava no banco) ficava pública pra qualquer um. Agora, sem
+  `CRON_SECRET` configurado, a rota recusa tudo (503) em vez de liberar
+  geral — falha **fechada**, não aberta.
+- **Scripts de CDN sem Subresource Integrity (SRI).** Chart.js, html2canvas,
+  jsPDF e Leaflet (JS + CSS) agora carregam com `integrity="sha384-..."` /
+  `sha512-...` + `crossorigin="anonymous"` — se um desses CDNs for
+  comprometido um dia e passar a servir um arquivo diferente do que
+  esperamos, o navegador recusa executar em vez de rodar o que vier. Os
+  hashes de `cdnjs.cloudflare.com` foram conferidos contra a própria API
+  pública deles (`api.cdnjs.com/libraries/...?fields=sri`), não só
+  calculados por nós.
+- **`Content-Security-Policy` + headers de segurança** (`vercel.json`,
+  aplicado a todas as rotas): `script-src` restrito a `'self'` + os dois
+  domínios de CDN (sem `unsafe-inline`/`unsafe-eval` — não há mais nenhum
+  `<script>` inline no projeto, então dava pra ser estrito de verdade).
+  `style-src` precisou de `'unsafe-inline'` porque várias partes do painel
+  usam `style="background:${cor}"` inline pra colorir card/tag/barra
+  dinamicamente — é um trade-off consciente (CSS injection é bem menos
+  grave que script injection) documentado aqui em vez de escondido.
+  `frame-ancestors 'none'` + `X-Frame-Options: DENY` (clickjacking),
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  strict-origin-when-cross-origin`, `Permissions-Policy` desligando
+  câmera/mic/geolocalização (nada disso é usado). **Testado de verdade**,
+  não só escrito: rodei Playwright injetando esses headers exatos e
+  interagindo com o app inteiro (tema, abrir modal com gráfico, comparar
+  estações, ajuda, Gerar PDF, o mapa da bacia) checando violação real de
+  CSP no console — a primeira tentativa **pegou um bug real** (o
+  `html2canvas`, usado no "Gerar PDF", injeta uma imagem `data:` internamente
+  que a CSP inicial bloqueava; `img-src` precisou incluir `data:`).
+- **3 pontos com `innerHTML = texto + e.message + texto`** (mensagens de
+  erro em `painel.js`/`bacia.js`) viraram um helper único,
+  `mostrarAviso()` (`comum.js`), que usa `textContent` pra parte variável.
+  Hoje `e.message` só contém strings nossas (`"HTTP 500"` etc.), então não
+  era explorável na prática — mas era um padrão frágil que ficaria
+  vulnerável se um dia alguém passasse a incluir resposta do servidor na
+  mensagem, sem perceber que estava abrindo um XSS.
+
+O que **já estava bem** e não precisou de mudança: toda query ao banco usa
+o template parametrizado do driver da Neon (`sql\`...\``) — nenhuma
+concatenação de string em SQL em lugar nenhum, então sem risco de SQL
+injection encontrado. Sem segredo commitado (conferido o histórico
+completo do git, não só o estado atual). `npm audit`: 0 vulnerabilidades
+(uma única dependência de runtime, `@neondatabase/serverless`). Sem
+`eval`/`new Function`/`document.write`. HTTPS forçado (HSTS já vem por
+padrão do Vercel). Os dados dinâmicos renderizados no front (cidade, rio,
+a nota da régua de Porto Alegre) vêm todos da nossa própria tabela
+`estacoes`, nunca de input de usuário ou do feed externo direto — não há
+vetor prático de XSS pelos dados em si, mesmo sem escaping explícito em
+todo lugar.
+
 ### Organização do CSS/JS entre as 3 páginas
 
 `index.html`, `bacia.html` e `acerto.html` costumavam ter cada uma seu

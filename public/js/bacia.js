@@ -111,8 +111,7 @@ async function carregar() {
     document.getElementById('sub').textContent =
       dados.estacoes.length + ' estações · atualizado ' + hora(dados.atualizadoEm);
   } catch (e) {
-    document.getElementById('aviso').innerHTML =
-      '<div class="aviso">Não foi possível carregar os dados: ' + e.message + '</div>';
+    mostrarAviso('aviso', 'Não foi possível carregar os dados: ' + e.message);
   }
 }
 

@@ -7,9 +7,18 @@ import { executarColeta } from '../lib/coletar.js';
 // pode ser rodada fora do Vercel — ver scripts/coletar-local.js.
 export default async function handler(req, res) {
   const segredo = process.env.CRON_SECRET;
-  const autorizacao = req.headers.authorization;
 
-  if (segredo && autorizacao !== `Bearer ${segredo}`) {
+  // Falha FECHADA: sem CRON_SECRET configurado no ambiente, recusa tudo em
+  // vez de liberar geral. Antes, "segredo &&" pulava a checagem inteira se a
+  // variável não existisse — bastava esquecer de configurar no Vercel pra
+  // essa rota (que dispara coleta e grava no banco) ficar pública.
+  if (!segredo) {
+    console.error('CRON_SECRET não configurado — recusando por segurança.');
+    return res.status(503).json({ erro: 'Rota não configurada.' });
+  }
+
+  const autorizacao = req.headers.authorization;
+  if (autorizacao !== `Bearer ${segredo}`) {
     return res.status(401).json({ erro: 'Não autorizado' });
   }
 

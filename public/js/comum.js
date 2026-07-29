@@ -26,3 +26,17 @@ const CONDICOES = {
 function condicaoTexto(codigo) {
   return CONDICOES[codigo] || 'Condição desconhecida';
 }
+
+// Mostra uma mensagem de erro dentro de #<elId> como uma <div class="aviso">
+// — usa textContent pra parte variável (nunca innerHTML + concatenação),
+// pra um "Não foi possível carregar: " + e.message nunca virar vetor de XSS
+// mesmo que um dia e.message passe a incluir texto vindo do servidor.
+function mostrarAviso(elId, mensagem) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = '';
+  const div = document.createElement('div');
+  div.className = 'aviso';
+  div.textContent = mensagem;
+  el.appendChild(div);
+}

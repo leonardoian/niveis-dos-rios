@@ -81,8 +81,7 @@ async function gerarPdf() {
     const hoje = new Date().toISOString().slice(0, 10);
     pdf.save(`niveis-dos-rios-${hoje}.pdf`);
   } catch (e) {
-    document.getElementById('aviso').innerHTML =
-      '<div class="aviso">Não foi possível gerar o PDF: ' + e.message + '</div>';
+    mostrarAviso('aviso', 'Não foi possível gerar o PDF: ' + e.message);
   } finally {
     document.body.classList.remove('gerando-pdf');
     btn.disabled = false;
@@ -161,8 +160,7 @@ async function carregar() {
     iniciarContagemColeta(dados.ultimaColeta);
     renderizarStatusFontes();
   } catch (e) {
-    document.getElementById('aviso').innerHTML =
-      '<div class="aviso">Não foi possível carregar os dados: ' + e.message + '</div>';
+    mostrarAviso('aviso', 'Não foi possível carregar os dados: ' + e.message);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Atualizar';
