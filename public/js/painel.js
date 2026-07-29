@@ -124,7 +124,7 @@ function atualizarAnelProgresso(fracaoDecorrida, atrasado) {
   if (!anel) return;
   const offset = Math.max(0, Math.min(100, fracaoDecorrida * 100));
   anel.setAttribute('stroke-dashoffset', atrasado ? 0 : String(offset));
-  anel.setAttribute('stroke', atrasado ? CORES.atencao : 'var(--txt3)');
+  anel.setAttribute('stroke', atrasado ? CORES.atencao : 'var(--acento)');
 }
 
 function atualizarContagem() {
@@ -251,7 +251,7 @@ function calcularEtaCota(e) {
   return null;
 }
 
-function card(e) {
+function card(e, indice = 0, comAnimacao = false) {
   const pct = e.percentualCota === null ? 0 : Math.min(100, e.percentualCota);
   const cor = CORES[e.status];
   const nivel = e.nivel === null ? '—' : e.nivel.toFixed(2);
@@ -329,7 +329,13 @@ function card(e) {
   const corFrescor = CORES[FRESCOR_PARA_COR[e.frescor?.status] || 'sem_dado'];
   const tituloFrescor = FRESCOR_TITULO[e.frescor?.status] || '';
 
-  return `<div class="card ${e.status}" data-slug="${e.slug}">
+  // Entrada escalonada só no primeiro carregamento da página (ver render())
+  // — não no refresh automático nem ao limpar o filtro de busca, senão os
+  // cards ficariam "piscando" toda hora em vez de só na primeira vez.
+  const classeEntrada = comAnimacao ? ' entrada' : '';
+  const estiloEntrada = comAnimacao ? ` style="--atraso:${Math.min(indice * 25, 300)}ms"` : '';
+
+  return `<div class="card ${e.status}${classeEntrada}" data-slug="${e.slug}"${estiloEntrada}>
     <div class="topo">
       <div>
         <div class="cidade">${e.cidade}/${e.uf}</div>
@@ -345,7 +351,7 @@ function card(e) {
     ${vel}
     ${etaHtml}
     ${spark}
-    <div class="barra"><i style="width:${pct}%;background:${cor}"></i></div>
+    <div class="barra" title="${pct.toFixed(0)}% da cota"><i style="width:${pct}%;background-color:${cor}"></i></div>
     <div class="rodape">
       <span>Cota ${e.cota.toFixed(2)} m${e.nota ? ` <span class="nota-info" title="${e.nota.replace(/"/g, '&quot;')}">ⓘ</span>` : ''}</span>
       <span>${margem}</span>
@@ -357,6 +363,10 @@ function card(e) {
 }
 
 let filtroAtual = '';
+// Entrada escalonada dos cards só na primeira carga da página — uma flag de
+// módulo em vez de checar "grid está vazio?", senão o efeito reapareceria
+// toda vez que o filtro de busca zera a lista e volta a ter resultados.
+let primeiraCargaFeita = false;
 
 function render() {
   if (!dados) return;
@@ -369,18 +379,24 @@ function render() {
 
   // KPIs sempre refletem TODAS as estações, mesmo com filtro de busca ativo
   // — o filtro é só pra achar um card na tela, não pra recortar o resumo.
-  document.getElementById('k-alerta').textContent = dados.resumo.emAlerta;
-  document.getElementById('k-alagado').textContent = dados.resumo.acimaDaCota;
-  document.getElementById('k-subindo').textContent = dados.resumo.subindo;
+  // aplicarComDestaque() só acende o pulso visual quando o valor realmente
+  // muda de um refresh (5 em 5 min) pro outro.
+  aplicarComDestaque(document.getElementById('k-alerta'), String(dados.resumo.emAlerta));
+  aplicarComDestaque(document.getElementById('k-alagado'), String(dados.resumo.acimaDaCota));
+  aplicarComDestaque(document.getElementById('k-subindo'), String(dados.resumo.subindo));
 
   const poa = dados.estacoes.find(e => e.slug === 'portoalegre');
-  document.getElementById('k-poa').textContent = poa && poa.nivel !== null ? poa.nivel.toFixed(2) + ' m' : '—';
+  aplicarComDestaque(
+    document.getElementById('k-poa'),
+    poa && poa.nivel !== null ? poa.nivel.toFixed(2) + ' m' : '—'
+  );
 
   const comSubida24h = dados.estacoes.filter((e) => e.variacao24hCm !== null && e.variacao24hCm > 0);
   const maiorSubida = comSubida24h.reduce((maior, e) => (!maior || e.variacao24hCm > maior.variacao24hCm ? e : maior), null);
-  document.getElementById('k-subida24h').textContent = maiorSubida
-    ? `${maiorSubida.cidade} +${(maiorSubida.variacao24hCm / 100).toFixed(2)} m`
-    : '—';
+  aplicarComDestaque(
+    document.getElementById('k-subida24h'),
+    maiorSubida ? `${maiorSubida.cidade} +${(maiorSubida.variacao24hCm / 100).toFixed(2)} m` : '—'
+  );
 
   document.getElementById('sub').textContent =
     dados.estacoes.length + ' estações · atualizado ' + hora(dados.atualizadoEm);
@@ -390,7 +406,13 @@ function render() {
     ? lista.filter((e) => `${e.cidade} ${e.rio} ${e.uf}`.toLowerCase().includes(termo))
     : lista;
 
-  document.getElementById('grid').innerHTML = listaFiltrada.map(card).join('');
+  const comAnimacao = !primeiraCargaFeita;
+  const antes = valoresAntesDeRenderizar('#grid', '.card', 'slug', '.nivel');
+  document.getElementById('grid').innerHTML = listaFiltrada
+    .map((e, i) => card(e, i, comAnimacao))
+    .join('');
+  if (!comAnimacao) destacarMudancas('#grid', '.card', 'slug', '.nivel', antes);
+  primeiraCargaFeita = true;
   document.getElementById('filtroVazio').hidden = listaFiltrada.length > 0;
 
   desenharSparklines(listaFiltrada);

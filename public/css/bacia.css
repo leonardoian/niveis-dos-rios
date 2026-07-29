@@ -25,6 +25,9 @@ header { display: flex; justify-content: space-between; align-items: flex-start;
   background: var(--card); border: 1px solid var(--linha); border-left: 4px solid var(--txt3);
   border-radius: 8px; padding: 8px 12px; min-width: 130px; text-align: left;
 }
+@media (prefers-reduced-motion: no-preference) {
+  .pill { transition: background-color .3s ease, border-color .3s ease; }
+}
 .pill.normal   { border-left-color: #639922; }
 .pill.atencao  { border-left-color: #ba7517; }
 .pill.alerta   { border-left-color: #ef9f27; }

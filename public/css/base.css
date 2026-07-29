@@ -16,16 +16,35 @@ body {
 h1 { font-size: 20px; font-weight: 600; }
 .sub { font-size: 13px; color: var(--txt3); margin-top: 2px; }
 .voltar { font-size: 13px; color: var(--txt2); text-decoration: none; }
-.voltar:hover { text-decoration: underline; }
+.voltar:hover { text-decoration: underline; color: var(--acento); }
 button {
   font: inherit; font-size: 13px; padding: 7px 12px;
   border: 1px solid var(--linha); border-radius: 7px;
   background: var(--card); color: var(--txt); cursor: pointer;
 }
-button:hover { background: var(--bg); }
+button:hover { background: var(--bg); border-color: var(--acento); }
 
 .rodape-fontes { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--linha); font-size: 12px; color: var(--txt3); }
 .rodape-fontes p { margin-top: 4px; }
 .rodape-fontes p:first-child { margin-top: 0; }
 .rodape-fontes b { color: var(--txt2); }
 .rodape-fontes a { color: var(--txt2); }
+.rodape-fontes a:hover { color: var(--acento); }
+
+/* Foco de teclado e seleção de texto usam a cor de destaque, em vez do
+   contorno azul padrão do navegador (que destoa da paleta) ou de nada. */
+button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--acento); outline-offset: 2px;
+}
+::selection { background: var(--acento-fraco); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--acento); }
+
+/* Troca de tema (claro/escuro) suave: o atributo data-tema continua sendo
+   trocado instantaneamente pelo JS (js/tema.js não muda) — só a cor em si
+   ganha uma transição visual, e só pra quem não pediu menos movimento. */
+@media (prefers-reduced-motion: no-preference) {
+  body, button, select, .filtro-input, .kpi, .tag, .aviso, .modal,
+  table, th, td {
+    transition: background-color .3s ease, border-color .3s ease, color .3s ease;
+  }
+}

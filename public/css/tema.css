@@ -12,6 +12,12 @@
   --aviso-bg: #fff6e5;
   --aviso-border: #f0d4a0;
   --aviso-txt: #6b4c15;
+  /* Azul-rio, a mesma cor do theme-color do manifest — única cor de marca
+     do projeto, usada aqui pra elementos de ação/chrome (não de status). */
+  --acento: #1c5f8a;
+  --acento-hover: #154a6c;
+  --acento-fraco: rgba(28, 95, 138, .12);
+  --acento-contraste: #ffffff;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-tema="claro"]) {
@@ -24,6 +30,10 @@
     --aviso-bg: #3a2f16;
     --aviso-border: #5c4a1f;
     --aviso-txt: #f0d4a0;
+    --acento: #5b9bd5;
+    --acento-hover: #7db4e0;
+    --acento-fraco: rgba(91, 155, 213, .18);
+    --acento-contraste: #14161b;
   }
 }
 :root[data-tema="escuro"] {
@@ -36,4 +46,8 @@
   --aviso-bg: #3a2f16;
   --aviso-border: #5c4a1f;
   --aviso-txt: #f0d4a0;
+  --acento: #5b9bd5;
+  --acento-hover: #7db4e0;
+  --acento-fraco: rgba(91, 155, 213, .18);
+  --acento-contraste: #14161b;
 }

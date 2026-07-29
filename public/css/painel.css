@@ -48,7 +48,7 @@
 }
 
 .wrap { max-width: 1180px; margin: 0 auto; }
-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
 .sub.proxima { display: flex; align-items: center; gap: 6px; }
 .sub.proxima[hidden] { display: none; }
 .anel-atualizacao { width: 13px; height: 13px; flex-shrink: 0; }
@@ -67,8 +67,8 @@ select {
 }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button:disabled:hover { background: var(--card); }
-select:focus { outline: none; border-color: var(--txt3); }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-fraco); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 20px; }
 .filtro-input {
   font: inherit; font-size: 13px; padding: 7px 12px;
   border: 1px solid var(--linha); border-radius: 7px;
@@ -76,17 +76,19 @@ select:focus { outline: none; border-color: var(--txt3); }
   width: 100%; max-width: 320px; margin-bottom: 14px; display: block;
 }
 .filtro-input::placeholder { color: var(--txt3); }
-.filtro-input:focus { outline: none; border-color: var(--txt3); }
+.filtro-input:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-fraco); }
 .filtro-vazio { color: var(--txt3); font-size: 13px; padding: 20px 0; text-align: center; }
 .kpi { background: var(--card); border: 1px solid var(--linha); border-radius: 10px; padding: 14px 16px; }
 .kpi span { display: block; font-size: 12px; color: var(--txt2); }
-.kpi strong { display: block; font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.kpi strong { display: block; font-size: 28px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kpi-destaque strong { color: var(--acento); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
 .card {
-  background: var(--card); border: 1px solid var(--linha); border-radius: 12px; padding: 16px 18px;
-  cursor: pointer; transition: box-shadow .15s, transform .15s;
+  background: var(--card); border: 1px solid var(--linha); border-radius: 12px; padding: 18px 20px;
+  cursor: pointer; box-shadow: 0 1px 2px var(--sombra);
+  transition: box-shadow .15s, transform .15s, background-color .3s ease, border-color .3s ease;
 }
-.card:hover { box-shadow: 0 4px 14px var(--sombra); }
+.card:hover { box-shadow: 0 4px 14px var(--sombra); transform: translateY(-2px); }
 .card.alagado { border-color: #e24b4a; }
 .card.alerta  { border-color: #ef9f27; }
 .topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
@@ -104,7 +106,7 @@ select:focus { outline: none; border-color: var(--txt3); }
 .tag.alerta   { background: #faeeda; color: #633806; }
 .tag.alagado  { background: #fcebeb; color: #791f1f; }
 .tag.sem_dado { background: #eeeeee; color: #666666; }
-.nivel { font-size: 30px; font-weight: 600; margin-top: 12px; font-variant-numeric: tabular-nums; }
+.nivel { font-size: 32px; font-weight: 700; letter-spacing: -0.01em; margin-top: 12px; font-variant-numeric: tabular-nums; }
 .nivel small { font-size: 14px; font-weight: 400; color: var(--txt3); }
 .vel { font-size: 13px; color: var(--txt2); margin-top: 2px; }
 .vel.sobe { color: #a32d2d; }
@@ -112,8 +114,13 @@ select:focus { outline: none; border-color: var(--txt3); }
 .eta { font-size: 12px; margin-top: 3px; }
 .eta.subindo { color: #a32d2d; }
 .eta.descendo { color: #3b6d11; }
-.barra { height: 6px; border-radius: 3px; background: var(--barra-fundo); overflow: hidden; margin: 14px 0 6px; }
-.barra i { display: block; height: 100%; }
+.barra { height: 8px; border-radius: 4px; background: var(--barra-fundo); overflow: hidden; margin: 14px 0 6px; }
+.barra i {
+  display: block; height: 100%;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 55%),
+    linear-gradient(90deg, transparent calc(100% - 6px), rgba(255,255,255,.55) calc(100% - 6px));
+}
 .spark-wrap { height: 32px; margin: 10px 0 2px; }
 .spark-wrap.vazio { display: flex; align-items: center; font-size: 11px; color: var(--txt3); }
 .spark-legenda { font-size: 11px; color: var(--txt3); text-align: right; margin-top: 1px; }
@@ -174,7 +181,7 @@ select:focus { outline: none; border-color: var(--txt3); }
 .estimativa-cota.descendo { color: #3b6d11; }
 .estimativa-cota:empty { display: none; padding: 0; margin: 0; }
 .janela-btn { font-size: 12px; padding: 6px 12px; }
-.janela-btn.ativo { background: var(--txt); color: var(--bg); border-color: var(--txt); }
+.janela-btn.ativo { background: var(--acento); color: var(--acento-contraste); border-color: var(--acento); }
 .modal-corpo { position: relative; height: 300px; }
 .modal-vazio { text-align: center; color: var(--txt3); font-size: 13px; padding: 60px 20px; }
 
@@ -218,6 +225,16 @@ body.gerando-pdf .lista-alertas,
 body.gerando-pdf .rodape-fontes {
   display: none !important;
 }
+body.gerando-pdf .card { box-shadow: none; }
+
+/* Rede de segurança: o html2canvas tira uma "foto" síncrona do DOM — se
+   pegar o meio-caminho de uma transição/animação (troca de tema, pulso de
+   atualização, entrada escalonada dos cards), o banner sairia com um estado
+   visual incompleto. Trava tudo antes da captura. */
+body.gerando-pdf, body.gerando-pdf * {
+  animation: none !important;
+  transition: none !important;
+}
 
 /* @media print continua disponível como bônus pra quem preferir Ctrl+P
    manual — não é mais o que o botão "Gerar PDF" usa. */
@@ -249,6 +266,11 @@ body.gerando-pdf .rodape-fontes {
   }
   .card { break-inside: avoid; box-shadow: none !important; cursor: default; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  /* Se a impressão for disparada logo após uma troca de tema (transição de
+     cor rodando) ou um hover, trava tudo pra não arriscar imprimir um
+     quadro no meio de uma transição — mesmo raciocínio do kill-switch do
+     modo Gerar PDF. */
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 
 /* Celular: alvo de toque maior nos botões/select (recomendação ~44px) e
@@ -284,4 +306,29 @@ body.gerando-pdf .rodape-fontes {
     display: block; position: absolute; top: 10px; right: 12px;
     width: 34px; height: 34px; padding: 0; font-size: 16px;
   }
+}
+
+/* Micro-interações: pulso quando um KPI/card muda de valor no refresh
+   automático (5 em 5 min) e entrada escalonada dos cards no primeiro load.
+   Tudo dentro de reduced-motion:no-preference — com reduced-motion ativo as
+   classes simplesmente não fazem nada (o valor final já está lá via
+   textContent, só o efeito decorativo some). */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes pulso-card {
+    from { box-shadow: 0 0 0 4px var(--acento-fraco); }
+    to   { box-shadow: 0 1px 2px var(--sombra); }
+  }
+  .card-atualizado { animation: pulso-card 1.2s ease-out; }
+
+  @keyframes pulso-valor {
+    0%, 100% { color: inherit; }
+    30% { color: var(--acento); }
+  }
+  .valor-mudou { animation: pulso-valor .8s ease-out; }
+
+  @keyframes card-entra {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card.entrada { animation: card-entra .35s ease-out both; animation-delay: var(--atraso, 0ms); }
 }
