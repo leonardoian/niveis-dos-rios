@@ -93,7 +93,7 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
    em cada item) com divisores finos entre os números, em vez de 5 cards
    separados — mais parecido com uma faixa de estatísticas de destaque. */
 .kpis {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0;
+  display: flex; flex-wrap: wrap; gap: 0;
   margin-bottom: 20px; background: var(--card); border: 1px solid var(--linha);
   border-radius: 10px; box-shadow: 0 1px 2px var(--sombra);
 }
@@ -106,10 +106,17 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 .filtro-input::placeholder { color: var(--txt3); }
 .filtro-input:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-fraco); }
 .filtro-vazio { color: var(--txt3); font-size: 13px; padding: 20px 0; text-align: center; }
-.kpi { padding: 18px 20px; }
+.kpi { padding: 18px 20px; flex: 1 1 150px; min-width: 150px; }
 .kpi span { display: block; font-size: 11px; color: var(--txt2); text-transform: uppercase; letter-spacing: .5px; }
 .kpi strong { display: block; font-size: 32px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .kpi-destaque strong { color: var(--acento); }
+/* "Maior subida 24h" carrega texto (nome da cidade), não só um número —
+   numa coluna estreita isso quebra em 3-4 linhas feias. flex-grow dobrado
+   dá mais espaço de sobra pra esse item (sem tirar espaço fixo dos outros,
+   já que min-width continua igual pra todos) e a fonte menor, já que
+   "cidade + valor" não precisa do mesmo tamanho gigante de "3". */
+.kpi-largo { flex-grow: 2; flex-basis: 220px; }
+.kpi-largo strong { font-size: 22px; }
 @media (min-width: 641px) {
   .kpi:not(:last-child) { border-right: 1px solid var(--linha); }
 }
@@ -240,6 +247,7 @@ body.apresentacao .rodape-fontes {
   display: none;
 }
 body.apresentacao .kpi strong { font-size: 34px; }
+body.apresentacao .kpi-largo strong { font-size: 26px; }
 body.apresentacao .grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
 body.apresentacao .card { padding: 22px 26px; }
 body.apresentacao .nivel { font-size: 42px; }
