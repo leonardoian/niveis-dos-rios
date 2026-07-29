@@ -34,7 +34,11 @@
   animation: intro-sai .4s ease-in 1s forwards;
 }
 .intro-icone { border-radius: 16px; animation: intro-entra .5s ease-out both; }
-.intro-nome { font-size: 19px; font-weight: 600; color: var(--txt); animation: intro-entra .5s ease-out .12s both; }
+.intro-nome {
+  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-size: 19px; font-weight: 600; color: var(--txt);
+  animation: intro-entra .5s ease-out .12s both;
+}
 .intro-sub { font-size: 13px; color: var(--txt3); animation: intro-entra .5s ease-out .22s both; }
 @keyframes intro-entra {
   from { opacity: 0; transform: translateY(6px); }
@@ -48,7 +52,24 @@
 }
 
 .wrap { max-width: 1180px; margin: 0 auto; }
-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+
+/* Hero: capa em foto do painel principal (fora de .wrap de propósito, pra
+   poder ocupar a largura inteira da viewport). Fica sempre escura (foto +
+   véu + texto branco) independente do tema claro/escuro do resto do site —
+   é identidade visual fixa, não conteúdo que precise seguir o tema. Foto:
+   Edson Perotoni, Wikimedia Commons (CC BY-SA 3.0) — crédito no rodapé. */
+.hero {
+  background:
+    linear-gradient(180deg, rgba(10,14,20,.35), rgba(10,14,20,.78)),
+    url('../img/hero-guaiba.jpg') center/cover no-repeat;
+  padding: 48px 24px 32px;
+}
+.hero-conteudo { max-width: 1180px; margin: 0 auto; }
+.hero h1 { color: #fff; }
+.hero .sub { color: rgba(255,255,255,.75); }
+.hero .anel-atualizacao circle:first-child { stroke: rgba(255,255,255,.3); }
+
+.barra-acoes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
 .sub.proxima { display: flex; align-items: center; gap: 6px; }
 .sub.proxima[hidden] { display: none; }
 .anel-atualizacao { width: 13px; height: 13px; flex-shrink: 0; }
@@ -68,7 +89,14 @@ select {
 button:disabled { opacity: .5; cursor: not-allowed; }
 button:disabled:hover { background: var(--card); }
 select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-fraco); }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 20px; }
+/* KPIs em "stat bar": uma barra única (fundo/borda/sombra só na .kpis, não
+   em cada item) com divisores finos entre os números, em vez de 5 cards
+   separados — mais parecido com uma faixa de estatísticas de destaque. */
+.kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0;
+  margin-bottom: 20px; background: var(--card); border: 1px solid var(--linha);
+  border-radius: 10px; box-shadow: 0 1px 2px var(--sombra);
+}
 .filtro-input {
   font: inherit; font-size: 13px; padding: 7px 12px;
   border: 1px solid var(--linha); border-radius: 7px;
@@ -78,10 +106,13 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 .filtro-input::placeholder { color: var(--txt3); }
 .filtro-input:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-fraco); }
 .filtro-vazio { color: var(--txt3); font-size: 13px; padding: 20px 0; text-align: center; }
-.kpi { background: var(--card); border: 1px solid var(--linha); border-radius: 10px; padding: 14px 16px; }
-.kpi span { display: block; font-size: 12px; color: var(--txt2); }
-.kpi strong { display: block; font-size: 28px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.kpi { padding: 18px 20px; }
+.kpi span { display: block; font-size: 11px; color: var(--txt2); text-transform: uppercase; letter-spacing: .5px; }
+.kpi strong { display: block; font-size: 32px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .kpi-destaque strong { color: var(--acento); }
+@media (min-width: 641px) {
+  .kpi:not(:last-child) { border-right: 1px solid var(--linha); }
+}
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
 .card {
   background: var(--card); border: 1px solid var(--linha); border-radius: 12px; padding: 18px 20px;
@@ -216,7 +247,7 @@ body.apresentacao .cidade { font-size: 18px; }
 
 /* Gerar PDF (botão): esconde controles/seções que não fazem parte do
    banner antes de tirar a "foto" com html2canvas. */
-body.gerando-pdf header .acoes,
+body.gerando-pdf .barra-acoes,
 body.gerando-pdf .menu-toggle,
 body.gerando-pdf #proxColeta,
 body.gerando-pdf #aviso,
@@ -254,7 +285,7 @@ body.gerando-pdf, body.gerando-pdf * {
   }
   @page { size: landscape; margin: 10mm; }
   body { padding: 0; }
-  header .acoes,
+  .barra-acoes,
   .menu-toggle,
   #proxColeta,
   #aviso,
@@ -264,6 +295,12 @@ body.gerando-pdf, body.gerando-pdf * {
   .modal-overlay {
     display: none !important;
   }
+  /* Mantém o título impresso (não some junto com a foto) — só tira a foto
+     de fundo (economiza tinta, evita imprimir uma foto gigante) e volta o
+     texto pra cor normal do tema claro forçado acima. */
+  .hero { background: none !important; padding: 0 0 10px !important; }
+  .hero h1 { color: var(--txt) !important; }
+  .hero .sub { color: var(--txt3) !important; }
   .card { break-inside: avoid; box-shadow: none !important; cursor: default; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   /* Se a impressão for disparada logo após uma troca de tema (transição de
@@ -286,7 +323,7 @@ body.gerando-pdf, body.gerando-pdf * {
    PDF, comparar, ajuda...) não cabe numa linha só — vira um menu lateral
    (gaveta) aberto pelo ☰, em vez de embolar/quebrar em várias linhas. */
 @media (max-width: 640px) {
-  header { align-items: center; }
+  .hero { padding: 32px 16px 20px; }
   .menu-toggle {
     display: inline-flex; align-items: center; justify-content: center;
     width: 40px; height: 40px; padding: 0; font-size: 18px; flex-shrink: 0;

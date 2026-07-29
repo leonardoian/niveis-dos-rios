@@ -58,7 +58,9 @@ async function gerarPdf() {
   document.body.classList.add('gerando-pdf');
 
   try {
-    const alvo = document.querySelector('.wrap');
+    // .pagina engloba o hero (fica fora de .wrap pra poder ser full-bleed)
+    // + .wrap — sem isso o banner exportado perderia a capa com foto.
+    const alvo = document.querySelector('.pagina');
     const corFundo = getComputedStyle(document.body).backgroundColor || '#ffffff';
     const canvas = await html2canvas(alvo, { scale: 2, backgroundColor: corFundo, useCORS: true });
 

@@ -22,21 +22,24 @@
   <div class="intro-nome">Níveis dos Rios</div>
   <div class="intro-sub">Bacia do Guaíba</div>
 </div>
+<div class="pagina">
+<header class="hero">
+  <div class="hero-conteudo">
+    <h1>Níveis dos rios — Bacia do Guaíba</h1>
+    <p class="sub" id="sub">Carregando…</p>
+    <p class="sub proxima" id="proxColeta" hidden>
+      <svg class="anel-atualizacao" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="var(--linha)" stroke-width="2"/>
+        <circle id="anelProgresso" cx="12" cy="12" r="9" fill="none" stroke="var(--acento)"
+                stroke-width="2" stroke-linecap="round" pathLength="100"
+                stroke-dasharray="100" stroke-dashoffset="0" transform="rotate(-90 12 12)"/>
+      </svg>
+      <span id="proxColetaTexto"></span>
+    </p>
+  </div>
+</header>
 <div class="wrap">
-  <header>
-    <div>
-      <h1>Níveis dos rios — Bacia do Guaíba</h1>
-      <p class="sub" id="sub">Carregando…</p>
-      <p class="sub proxima" id="proxColeta" hidden>
-        <svg class="anel-atualizacao" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" fill="none" stroke="var(--linha)" stroke-width="2"/>
-          <circle id="anelProgresso" cx="12" cy="12" r="9" fill="none" stroke="var(--acento)"
-                  stroke-width="2" stroke-linecap="round" pathLength="100"
-                  stroke-dasharray="100" stroke-dashoffset="0" transform="rotate(-90 12 12)"/>
-        </svg>
-        <span id="proxColetaTexto"></span>
-      </p>
-    </div>
+  <div class="barra-acoes">
     <button id="menuToggle" class="menu-toggle" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="acoes">☰</button>
     <div class="acoes" id="acoes">
       <button id="menuFechar" class="menu-fechar" type="button" aria-label="Fechar menu">✕</button>
@@ -59,7 +62,7 @@
       <button id="ajudaToggle" type="button" title="O que significa cada ícone e cor">❓ Ajuda</button>
     </div>
     <div class="menu-overlay" id="menuOverlay" hidden></div>
-  </header>
+  </div>
 
   <div id="aviso"></div>
 
@@ -90,7 +93,11 @@
        Em rios largos como o Guaíba a grade de 5km pode não acertar o canal certo.</p>
     <p>Clima previsto via <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener">Open-Meteo</a>
        — mesmo modelo global, não é uma medição.</p>
+    <p>Foto do Guaíba no topo: Edson Perotoni, via
+       <a href="https://commons.wikimedia.org/wiki/File:Por_sol_do_Gua%C3%ADba.jpg" target="_blank" rel="noopener">Wikimedia Commons</a>
+       (CC BY-SA 3.0).</p>
   </footer>
+</div>
 </div>
 
 <div class="modal-overlay" id="modalOverlay" hidden>
