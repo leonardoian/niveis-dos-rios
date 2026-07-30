@@ -60,10 +60,17 @@ function popupHtml(e) {
     const chuva = c.chuvaMm === null ? '—' : c.chuvaMm.toFixed(1) + 'mm';
     clima = `<div class="popup-rio">${condicaoTexto(c.condicaoCodigo)} · ${Math.round(c.tempMax)}°/${Math.round(c.tempMin)}°C · ${chuva} hoje</div>`;
   }
+  // Chuva MEDIDA na própria estação (ANA) — linha separada da previsão
+  // acima, mesma disciplina do card no painel principal.
+  let chuvaMedida = '';
+  if (e.chuvaMedidaAnaMm !== null && e.chuvaMedidaAnaMm !== undefined) {
+    chuvaMedida = `<div class="popup-rio">💧 ${e.chuvaMedidaAnaMm.toFixed(1)}mm medidos na estação (ANA)</div>`;
+  }
   return `<div class="popup-cidade">${e.cidade}/${e.uf}</div>
     <div class="popup-rio">${e.rio}</div>
     <div class="popup-nivel">${nivel} — ${ROTULOS[e.status]}</div>
-    ${clima}`;
+    ${clima}
+    ${chuvaMedida}`;
 }
 
 function atualizarMapa(estacoes) {

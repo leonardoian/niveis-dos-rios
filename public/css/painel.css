@@ -164,6 +164,7 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 .spark-legenda { font-size: 11px; color: var(--txt3); text-align: right; margin-top: 1px; }
 .prev-titulo { font-size: 10px; color: var(--txt3); text-transform: uppercase; letter-spacing: .3px; margin-top: 10px; }
 .clima { font-size: 12px; color: var(--txt2); margin-top: 4px; }
+.chuva-medida { font-size: 11px; color: var(--txt3); margin-top: 2px; cursor: help; }
 .rodape { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt3); }
 .cheia2024 { font-size: 11px; color: var(--txt3); margin-top: 4px; cursor: help; }
 .nota-info { cursor: help; color: var(--txt3); }

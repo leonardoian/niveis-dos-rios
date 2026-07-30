@@ -146,6 +146,11 @@ CREATE TABLE IF NOT EXISTS leituras_ana (
     CONSTRAINT leituras_ana_unicas UNIQUE (slug, medido_em)
 );
 
+-- Idempotente: bancos que criaram a tabela antes desta coluna existir.
+-- Chuva_Adotada vem no mesmo payload que Cota_Adotada — chuva acumulada
+-- MEDIDA na própria estação (não é previsão, diferente de previsoes.chuva_mm).
+ALTER TABLE leituras_ana ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
+
 CREATE INDEX IF NOT EXISTS idx_leituras_ana_slug_data
     ON leituras_ana (slug, medido_em DESC);
 

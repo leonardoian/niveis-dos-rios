@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ESTACOES_ANA, codigosParaLotes, converterCotaParaMetros, converterDataHoraAna } from '../lib/ana.js';
+import { ESTACOES_ANA, codigosParaLotes, converterCotaParaMetros, converterChuvaMm, converterDataHoraAna } from '../lib/ana.js';
 
 test('ESTACOES_ANA: tem exatamente 12 estações mapeadas', () => {
   assert.equal(Object.keys(ESTACOES_ANA).length, 12);
@@ -41,6 +41,17 @@ test('converterCotaParaMetros: null/undefined/inválido retorna null em vez de q
   assert.equal(converterCotaParaMetros(null), null);
   assert.equal(converterCotaParaMetros(undefined), null);
   assert.equal(converterCotaParaMetros('não é número'), null);
+});
+
+test('converterChuvaMm: número válido (string, formato da API) fica como está, em mm', () => {
+  assert.equal(converterChuvaMm('0.00'), 0);
+  assert.equal(converterChuvaMm('12.40'), 12.4);
+});
+
+test('converterChuvaMm: null/undefined/inválido retorna null em vez de quebrar', () => {
+  assert.equal(converterChuvaMm(null), null);
+  assert.equal(converterChuvaMm(undefined), null);
+  assert.equal(converterChuvaMm('não é número'), null);
 });
 
 test('converterDataHoraAna: interpreta como horário de Brasília (UTC-3), não UTC', () => {

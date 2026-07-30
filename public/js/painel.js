@@ -328,6 +328,14 @@ function card(e, indice = 0, comAnimacao = false) {
     clima = `<div class="clima">${condicaoTexto(c.condicaoCodigo)} · ${Math.round(c.tempMax)}°/${Math.round(c.tempMin)}°C · ${chuva} chuva hoje</div>`;
   }
 
+  // Chuva MEDIDA na própria estação (API oficial da ANA) — de propósito uma
+  // linha separada da previsão do Open-Meteo acima, nunca misturadas na
+  // mesma frase (uma é modelo, a outra é medição real).
+  let chuvaMedida = '';
+  if (e.chuvaMedidaAnaMm !== null && e.chuvaMedidaAnaMm !== undefined) {
+    chuvaMedida = `<div class="chuva-medida" title="Chuva acumulada medida na própria estação, via API oficial da ANA — diferente da previsão do Open-Meteo acima.">💧 ${e.chuvaMedidaAnaMm.toFixed(1)}mm medidos na estação (ANA)</div>`;
+  }
+
   const corFrescor = CORES[FRESCOR_PARA_COR[e.frescor?.status] || 'sem_dado'];
   const tituloFrescor = FRESCOR_TITULO[e.frescor?.status] || '';
 
@@ -349,6 +357,7 @@ function card(e, indice = 0, comAnimacao = false) {
       </div>
     </div>
     ${clima}
+    ${chuvaMedida}
     <p class="nivel">${nivel}<small> m</small></p>
     ${vel}
     ${etaHtml}

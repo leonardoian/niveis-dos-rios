@@ -106,6 +106,21 @@ export default async function handler(req, res) {
       });
     }
 
+    // Chuva MEDIDA na própria estação (API oficial da ANA, ver lib/ana.js),
+    // diferente da previsão do Open-Meteo acima — só existe pras 12 estações
+    // com código ANA mapeado (ESTACOES_ANA), e só depois da primeira coleta
+    // com ANA_IDENTIFICADOR/ANA_SENHA configuradas.
+    const chuvaAnaBruta = await sql`
+      SELECT DISTINCT ON (slug) slug, chuva_mm
+      FROM leituras_ana
+      WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
+        AND chuva_mm IS NOT NULL
+      ORDER BY slug, medido_em DESC
+    `;
+    const chuvaAnaPorSlug = new Map(
+      chuvaAnaBruta.map((r) => [r.slug, Number(r.chuva_mm)])
+    );
+
     const estacoes = linhas.map((r) => {
       const nivel = r.nivel_atual === null ? null : Number(r.nivel_atual);
       const cota = Number(r.cota_inundacao);
@@ -143,6 +158,7 @@ export default async function handler(req, res) {
           data: r.data_cheia_2024,
         },
         nota: r.nota,
+        chuvaMedidaAnaMm: chuvaAnaPorSlug.get(r.slug) ?? null,
       };
     });
 
