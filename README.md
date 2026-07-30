@@ -54,6 +54,7 @@ lib/coletar.js                        lógica de coleta em si (fetch + grava + a
 lib/previsao.js                       busca vazão (GloFAS) e clima (Open-Meteo) por coordenada
 lib/calculo.js                        funções puras (classificar, cm/h, frescor, ETA cota) — testadas em tests/
 lib/push.js                           envio de notificação push (Web Push/VAPID) — testado em tests/
+lib/ana.js                            cross-check com a API oficial da ANA — testado em tests/
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
 tests/                                testes automatizados (node --test, sem dependência nova)
@@ -109,6 +110,8 @@ Em Settings → Environment Variables, adicione:
 | `VAPID_PUBLIC_KEY`  | opcional — só se quiser notificações push (ver abaixo) |
 | `VAPID_PRIVATE_KEY` | opcional — idem, **nunca** commitar no repo         |
 | `VAPID_SUBJECT`     | opcional — idem, formato `mailto:seuemail@exemplo.com` |
+| `ANA_IDENTIFICADOR` | opcional — usuário da API da ANA, só pro cross-check (ver abaixo) |
+| `ANA_SENHA`         | opcional — senha da API da ANA, **nunca** commitar no repo |
 
 Gere o `CRON_SECRET` com: `openssl rand -hex 32`
 
@@ -483,6 +486,42 @@ simplesmente não faz nada — não derruba a coleta.
 Uma inscrição expirada (o navegador revogou, cache limpo etc.) é detectada
 pelo próprio envio (`web-push` retorna 404/410) e apagada automaticamente
 de `push_subscriptions` — sem faxina manual.
+
+### Cross-check com a API oficial da ANA
+
+`lib/ana.js` busca, a cada coleta, a leitura mais recente de 12 das 14
+estações direto da API oficial da ANA (`hidrowebservice`,
+`HidroinfoanaSerieTelemetricaAdotada`) e grava numa tabela separada,
+`leituras_ana` — **não substitui** a fonte principal
+(`nivelguaiba.com.br`, via `lib/feed.js`) e **não é lida pelo painel**, é
+só um registro pra comparar as duas fontes ao longo do tempo antes de
+considerar qualquer mudança maior.
+
+- **Por que só 12 das 14**: `lajeado` e `rocasales` ficaram de fora porque
+  o inventário oficial da ANA não deu uma resposta inequívoca pra elas —
+  a única estação telemétrica achada pra Lajeado está registrada no Rio
+  Forqueta (não no Rio Taquari, que é o que `schema.sql` documenta pra
+  essa estação), e não existe estação telemétrica própria no município de
+  Roca Sales, só uma estação combinada "Encantado/Roca Sales" sob o
+  município de Encantado. Preferimos deixar de fora a mostrar um código
+  errado — mesmo critério já usado pra outros dados duvidosos no projeto
+  (ver nota do `nivel_cheia_2024` de Roca Sales mais abaixo).
+- **Datum/régua**: pra cada cidade que tem duas redes telemétricas
+  paralelas (uma operada pela SGB-CPRM, que é a mesma operadora já
+  confirmada pra Porto Alegre, e outra mais nova operada por "DCRS"), o
+  código escolhido é sempre o da rede SGB-CPRM/ANA — mas isso não é
+  garantia de que a régua bate exatamente com a do `nivelguaiba.com.br`
+  pra todas elas (só validamos isso a fundo pra Porto Alegre). É
+  exatamente esse tipo de coisa que o cross-check existe pra revelar antes
+  de confiar.
+- **Autenticação**: a API usa um endpoint próprio (`OAUth/v1`, headers
+  `Identificador`/`Senha`) que devolve um JWT de curta duração (~1h).
+  `lib/ana.js` reautentica a cada rodada de coleta em vez de tentar
+  cachear o token entre execuções — funções serverless não compartilham
+  memória de forma confiável entre invocações, e uma chamada GET a mais a
+  cada 15 min é barato.
+- Opcional de propósito: sem `ANA_IDENTIFICADOR`/`ANA_SENHA` configuradas,
+  `buscarNiveisAna()` retorna vazio sem erro — não derruba a coleta.
 
 ### Qualidade e transparência dos dados
 

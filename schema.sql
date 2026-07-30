@@ -131,6 +131,24 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     criado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Cross-check com a API oficial da ANA (ver lib/ana.js) — mesmo formato de
+-- leituras, propositalmente SEPARADA: nunca é lida pelo cálculo do painel
+-- (api/painel.js continua 100% baseado em leituras, a fonte atual via
+-- nivelguaiba.com.br). Só 12 das 14 estações têm código ANA mapeado —
+-- lajeado e rocasales ficam de fora até resolver ambiguidades encontradas
+-- no inventário oficial (ver comentário em ESTACOES_ANA).
+CREATE TABLE IF NOT EXISTS leituras_ana (
+    id          BIGSERIAL PRIMARY KEY,
+    slug        TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
+    nivel       NUMERIC(7,2) NOT NULL,
+    medido_em   TIMESTAMPTZ NOT NULL,
+    coletado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT leituras_ana_unicas UNIQUE (slug, medido_em)
+);
+
+CREATE INDEX IF NOT EXISTS idx_leituras_ana_slug_data
+    ON leituras_ana (slug, medido_em DESC);
+
 -- ============================================================
 -- Carga inicial das 14 estações (cotas conforme sua planilha)
 -- Coordenadas: sede do município (fonte: Wikipédia), usadas só para
