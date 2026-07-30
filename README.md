@@ -25,6 +25,9 @@ estático (`/public`) + Neon Postgres. Não é sistema oficial de alerta.
   pequenas.
 - **Status de saúde das próprias fontes de dados**, pra saber rápido se o
   feed ou a previsão pararam de responder.
+- **Notificações push** quando uma estação entra em risco ou volta ao
+  normal — Web Push nativa do navegador, sem Telegram/Firebase.
+- **Radar de chuva** opcional no mapa da bacia (RainViewer).
 
 ## Índice
 
@@ -44,11 +47,13 @@ api/painel.js                         estado atual das estações (nível, cota,
 api/historico.js                      série temporal de uma estação
 api/alertas.js                        últimos alertas (mudança de status), com nome da cidade
 api/acerto.js                         acerto da estimativa de cota, por antecedência (ver Notas)
+api/push.js                           inscrição/cancelamento de notificação push (POST/DELETE)
 lib/db.js                             conexão com o Neon
 lib/feed.js                           leitura e parse do feed JSON
-lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão + estimativas)
+lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão + estimativas + push)
 lib/previsao.js                       busca vazão (GloFAS) e clima (Open-Meteo) por coordenada
 lib/calculo.js                        funções puras (classificar, cm/h, frescor, ETA cota) — testadas em tests/
+lib/push.js                           envio de notificação push (Web Push/VAPID) — testado em tests/
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
 tests/                                testes automatizados (node --test, sem dependência nova)
@@ -63,8 +68,10 @@ public/css/acerto.css                 estilos só de acerto.html
 public/js/tema.js                     toggle de tema claro/escuro — as 3 páginas carregam
 public/js/comum.js                    hora(), ROTULOS, CORES, CONDICOES/condicaoTexto — as 3 páginas carregam
 public/js/painel.js                   lógica só de index.html
-public/js/bacia.js                    lógica só de bacia.html
+public/js/bacia.js                    lógica só de bacia.html (inclui o toggle do radar de chuva)
 public/js/acerto.js                   lógica só de acerto.html
+public/js/push.js                     inscrever/cancelar notificação push — só index.html
+public/sw.js                          service worker (só recebe push — sem cache/offline)
 public/manifest.json                  PWA — nome, cores, ícones (pra "adicionar à tela inicial")
 public/icons/                         ícones do PWA (gerados, ver nota abaixo)
 schema.sql                            tabelas + carga inicial das 14 estações
@@ -95,12 +102,27 @@ completa o que faltar sem duplicar nem apagar nada que já está lá.
 
 Em Settings → Environment Variables, adicione:
 
-| Nome           | Valor                                              |
-| -------------- | -------------------------------------------------- |
-| `DATABASE_URL` | a connection string do Neon (com `?sslmode=require`) |
-| `CRON_SECRET`  | uma string aleatória qualquer                       |
+| Nome                | Valor                                              |
+| ------------------- | -------------------------------------------------- |
+| `DATABASE_URL`      | a connection string do Neon (com `?sslmode=require`) |
+| `CRON_SECRET`       | uma string aleatória qualquer                       |
+| `VAPID_PUBLIC_KEY`  | opcional — só se quiser notificações push (ver abaixo) |
+| `VAPID_PRIVATE_KEY` | opcional — idem, **nunca** commitar no repo         |
+| `VAPID_SUBJECT`     | opcional — idem, formato `mailto:seuemail@exemplo.com` |
 
 Gere o `CRON_SECRET` com: `openssl rand -hex 32`
+
+Gere o par de chaves VAPID (necessário só se for usar notificações push) com:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+A chave **pública** também precisa ser colada em `public/js/push.js`
+(constante `VAPID_PUBLIC_KEY` no topo do arquivo — não é secreta, só a
+privada é). Sem essas 3 variáveis configuradas, o botão "🔔 Ativar
+notificações" continua aparecendo mas a coleta simplesmente não envia nada
+(feature opcional, não quebra o resto do sistema — ver nota mais abaixo).
 
 Nunca coloque essas credenciais no código nem commite o `.env`.
 
@@ -220,6 +242,8 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/alertas`                      | últimos 30 alertas (mudança de status) |
 | `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
 | `GET /api/coletar`                      | força uma coleta (requer o header)  |
+| `POST /api/push`                        | inscreve pra notificação push (`{endpoint, keys:{p256dh,auth}}`) |
+| `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
 
 ## Notas
 
@@ -281,6 +305,14 @@ a nota da régua de Porto Alegre) vêm todos da nossa própria tabela
 `estacoes`, nunca de input de usuário ou do feed externo direto — não há
 vetor prático de XSS pelos dados em si, mesmo sem escaping explícito em
 todo lugar.
+
+**Nota sobre `/api/push`** (adicionado depois desta revisão): diferente de
+`/api/coletar`, é uma rota pública de propósito — qualquer visitante pode se
+inscrever pra notificação, igual um formulário de "avise-me" comum, sem
+segredo nem sessão. Só valida formato (`endpoint`/`keys.p256dh`/`keys.auth`
+presentes) antes de gravar. Não tem rate limit — risco aceito dado o porte
+do projeto (uso interno, sem tráfego público relevante); se isso mudar, o
+próximo passo seria limitar por IP.
 
 ### Organização do CSS/JS entre as 3 páginas
 
@@ -412,6 +444,45 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
   trade-off de não bater a API a cada coleta.
 - **Chuva prevista** aparece junto da tendência de vazão no modal de
   histórico (mesmo dado de `previsao`, campo `chuvaMm`).
+
+### Radar de chuva
+
+Camada opcional no mapa da bacia (botão "🌧 Radar de chuva", desligada por
+padrão pra não gastar uma chamada de API à toa em quem só quer ver o mapa
+das estações). Usa a API pública e gratuita do
+[RainViewer](https://www.rainviewer.com/) — sem chave, sem cadastro:
+`GET https://api.rainviewer.com/public/weather-maps.json` retorna os frames
+disponíveis, o mais recente vira uma camada de tile no Leaflet. Zoom nativo
+do radar é 7 (o mapa abre em 8) — acima disso o Leaflet faz upscale
+automático da imagem, não é bug se ficar um pouco mais "pixelado" no zoom
+máximo. Atualiza sozinho a cada ~10 min enquanto ligado.
+
+### Notificações push
+
+Botão "🔔 Ativar notificações" no painel principal — avisa quando **qualquer**
+uma das 14 estações entra em risco (atenção/alerta/alagado) ou volta ao
+normal, mesmo critério que já popula o histórico de alertas (`registrarAlertas()`
+em `lib/coletar.js`). Decisões de escopo (V1, deliberadas):
+
+- **Sem preferência por estação** — quem se inscreve recebe alerta de todas.
+  Se o grupo de uso crescer e isso virar ruído, dá pra evoluir pra uma tela
+  de preferências depois (exigiria uma coluna nova em `push_subscriptions`).
+- **Notifica entrada em risco E volta ao normal** — não só "piorou".
+
+Implementação é Web Push nativa do navegador (Service Worker +
+`PushManager` + VAPID) — **sem** Telegram, Firebase ou qualquer conta em
+serviço terceiro. `lib/push.js` assina e envia direto pro serviço de push de
+cada navegador (a lib `web-push` cuida da criptografia); `public/sw.js` só
+existe pra receber o evento `push` e mostrar a notificação — não faz cache
+de nada (cache agressivo numa ferramenta de tempo real seria pior que não
+ter nada: mostraria nível desatualizado como se fosse atual). A feature é
+opcional de propósito: sem as 3 variáveis `VAPID_*` configuradas no Vercel
+(ver seção de variáveis de ambiente acima), `enviarNotificacoesAlerta()`
+simplesmente não faz nada — não derruba a coleta.
+
+Uma inscrição expirada (o navegador revogou, cache limpo etc.) é detectada
+pelo próprio envio (`web-push` retorna 404/410) e apagada automaticamente
+de `push_subscriptions` — sem faxina manual.
 
 ### Qualidade e transparência dos dados
 
@@ -569,12 +640,16 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
 npm test
 ```
 
-Usa o test runner nativo do Node (`node --test`), sem dependência nova.
-Cobre as funções puras de `lib/calculo.js` (classificar, cm/h, frescor) e
-`lib/feed.js` (parse do feed) — inclusive o caso do bug real que já
-encontramos (nível sem casa decimal, tipo "1 metros"). Não testa rotas HTTP
-nem acesso ao banco — essas dependem de `DATABASE_URL` e são verificadas
-manualmente (`npm run coletar`, `curl` nos endpoints).
+Usa o test runner nativo do Node (`node --test`), sem dependência nova de
+teste. Cobre as funções puras de `lib/calculo.js` (classificar, cm/h,
+frescor), `lib/feed.js` (parse do feed) — inclusive o caso do bug real que
+já encontramos (nível sem casa decimal, tipo "1 metros") — e `lib/push.js`
+(payload da notificação, detecção de inscrição expirada). Não testa rotas
+HTTP nem acesso ao banco — essas dependem de `DATABASE_URL` e são
+verificadas manualmente (`npm run coletar`, `curl` nos endpoints). Por isso
+`lib/push.js` importa `./db.js` de forma tardia (dentro da função, não no
+topo do arquivo) — um import no topo quebraria a suite, já que `db.js`
+lança erro se `DATABASE_URL` não estiver definida.
 
 ## Fontes dos dados
 

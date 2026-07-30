@@ -116,6 +116,21 @@ CREATE INDEX IF NOT EXISTS idx_estimativas_cota_pendentes
 CREATE INDEX IF NOT EXISTS idx_estimativas_cota_avaliadas
     ON estimativas_cota (avaliado_em) WHERE avaliado_em IS NOT NULL;
 
+-- Inscrições de notificação push (Web Push API — ver lib/push.js). Uma
+-- linha por navegador/dispositivo inscrito; sem coluna de "quais estações"
+-- de propósito — quem se inscreve recebe alerta de todas as 14, mesmo
+-- critério que já popula a tabela alertas (entrada em risco E volta ao
+-- normal). endpoint é único porque o próprio navegador garante isso (é a
+-- URL do serviço de push dele) — reinscrever o mesmo endpoint só atualiza,
+-- nunca duplica.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id          BIGSERIAL PRIMARY KEY,
+    endpoint    TEXT NOT NULL UNIQUE,
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    criado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ============================================================
 -- Carga inicial das 14 estações (cotas conforme sua planilha)
 -- Coordenadas: sede do município (fonte: Wikipédia), usadas só para

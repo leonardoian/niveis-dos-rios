@@ -117,3 +117,60 @@ async function carregar() {
 
 carregar();
 setInterval(carregar, 5 * 60 * 1000);
+
+// ---- Radar de chuva (RainViewer, opcional — desligado por padrão) ----
+// A API é gratuita e sem chave, mas os frames disponíveis mudam a cada
+// poucos minutos — por isso busca o mapa de frames de novo a cada refresh,
+// em vez de guardar uma URL fixa.
+const RAINVIEWER_API = 'https://api.rainviewer.com/public/weather-maps.json';
+let camadaRadar = null;
+let timerRadar = null;
+
+async function ligarRadar() {
+  try {
+    const r = await fetch(RAINVIEWER_API);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const dados = await r.json();
+    const frames = dados.radar && dados.radar.past;
+    if (!Array.isArray(frames) || frames.length === 0) throw new Error('Sem frames de radar disponíveis');
+
+    const ultimo = frames[frames.length - 1];
+    const url = `${dados.host}${ultimo.path}/256/{z}/{x}/{y}/2/1_1.png`;
+
+    if (camadaRadar) mapa.removeLayer(camadaRadar);
+    camadaRadar = L.tileLayer(url, {
+      maxNativeZoom: 7,
+      maxZoom: 18,
+      opacity: 0.55,
+      attribution: 'Radar via <a href="https://www.rainviewer.com/">RainViewer</a>',
+    }).addTo(mapa);
+  } catch (e) {
+    mostrarAviso('aviso', 'Não foi possível carregar o radar de chuva: ' + e.message);
+    desligarRadar();
+  }
+}
+
+function desligarRadar() {
+  if (camadaRadar) {
+    mapa.removeLayer(camadaRadar);
+    camadaRadar = null;
+  }
+  clearInterval(timerRadar);
+  timerRadar = null;
+  const btn = document.getElementById('radarToggle');
+  if (btn) btn.dataset.ativo = '0';
+}
+
+document.getElementById('radarToggle').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  const ativo = btn.dataset.ativo === '1';
+  if (ativo) {
+    desligarRadar();
+    return;
+  }
+  btn.dataset.ativo = '1';
+  await ligarRadar();
+  // RainViewer publica frame novo a cada ~5-10 min — refresca nesse ritmo
+  // enquanto a camada estiver ligada, pra não mostrar chuva desatualizada.
+  timerRadar = setInterval(ligarRadar, 10 * 60 * 1000);
+});
