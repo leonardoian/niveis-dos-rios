@@ -339,6 +339,19 @@ function card(e, indice = 0, comAnimacao = false) {
   const corFrescor = CORES[FRESCOR_PARA_COR[e.frescor?.status] || 'sem_dado'];
   const tituloFrescor = FRESCOR_TITULO[e.frescor?.status] || '';
 
+  // Badge de confiabilidade/frescor da fonte ANA (cross-check), separado do
+  // frescor principal (nivelguaiba) acima — mesma linguagem visual
+  // (bolinha verde/amarela/vermelha), só informativo: não substitui nem
+  // alimenta o cálculo desta estação. Ausente (não vazio) pras 2 estações
+  // sem código ANA mapeado ou sem coleta ANA ainda.
+  let metaAna = '';
+  if (e.frescorAna) {
+    const corAna = CORES[FRESCOR_PARA_COR[e.frescorAna.status] || 'sem_dado'];
+    const tituloAna = FRESCOR_TITULO[e.frescorAna.status] || '';
+    const idadeTexto = formatarIdade(e.frescorAna.idadeSegundos * 1000);
+    metaAna = ` · <span class="frescor" style="background:${corAna}" title="${tituloAna}"></span>ANA: há ${idadeTexto}`;
+  }
+
   // Entrada escalonada só no primeiro carregamento da página (ver render())
   // — não no refresh automático nem ao limpar o filtro de busca, senão os
   // cards ficariam "piscando" toda hora em vez de só na primeira vez.
@@ -369,7 +382,7 @@ function card(e, indice = 0, comAnimacao = false) {
     </div>
     ${cheia2024Html}
     ${previsao}
-    <div class="meta"><span class="frescor" style="background:${corFrescor}" title="${tituloFrescor}"></span>${e.estacao || 'Estação não informada'} · ${hora(e.medidoEm)}</div>
+    <div class="meta"><span class="frescor" style="background:${corFrescor}" title="${tituloFrescor}"></span>${e.estacao || 'Estação não informada'} · ${hora(e.medidoEm)}${metaAna}</div>
   </div>`;
 }
 
@@ -525,14 +538,30 @@ async function carregarAlertas() {
       return;
     }
 
-    el.innerHTML = resposta.alertas.map((a) => `
+    el.innerHTML = resposta.alertas.map((a) => {
+      if (a.tipo === 'chuva') {
+        const alta = a.status === 'chuva_alerta';
+        const rotulo = alta ? 'chuva acumulada alta' : 'chuva acumulada normalizou';
+        const cor = alta ? CORES.alerta : CORES.normal;
+        const mm = a.chuvaMmAcumulada === null ? '—' : a.chuvaMmAcumulada.toFixed(0);
+        return `
+      <div class="alerta-item">
+        <span>${a.cidade}/${a.uf} —
+          <b style="color:${cor}">🌧️ ${rotulo}</b>
+          (${mm}mm, ${a.rio})</span>
+        <span class="alerta-hora">${hora(a.criadoEm)}</span>
+      </div>
+    `;
+      }
+      return `
       <div class="alerta-item">
         <span>${a.cidade}/${a.uf} entrou em
           <b style="color:${CORES[a.status]}">${ROTULOS[a.status]}</b>
           (${a.nivel.toFixed(2)} m, ${a.rio})</span>
         <span class="alerta-hora">${hora(a.criadoEm)}</span>
       </div>
-    `).join('');
+    `;
+    }).join('');
   } catch (e) {
     el.innerHTML = '<div class="alerta-vazio">Não foi possível carregar os alertas.</div>';
   }
@@ -660,6 +689,7 @@ function fecharHistorico() {
   document.getElementById('estimativaCota').className = 'estimativa-cota';
   document.getElementById('modalNota').hidden = true;
   document.getElementById('modalNota').textContent = '';
+  document.getElementById('modalChuvaLegenda').hidden = true;
 }
 
 function selecionarJanela(horas) {
@@ -695,6 +725,35 @@ async function carregarHistorico() {
   }
 }
 
+// pontos e chuvaAna já vêm ordenados ascendente por medidoEm (garantido
+// pelas duas queries em api/historico.js) — permite um único passe
+// two-pointer O(n+m) em vez de buscar o mais próximo pra cada leitura de
+// chuva (O(n·m)), relevante na janela de 30 dias. "Encaixa" cada leitura
+// de chuva no label de nível mais próximo; sem corte de tolerância (é uma
+// barra de contexto, não uma correlação precisa) — se isso incomodar numa
+// janela com buraco grande de dados, adicionar um limite de distância
+// máxima aqui. Em colisão (mais de uma leitura de chuva pro mesmo label),
+// a mais recente vence, já que chuva_mm é plotado bruto (valor "atual"
+// daquele instante é o mais representativo).
+function alinharChuvaAosLabels(pontos, chuvaAna) {
+  const porLabel = new Array(pontos.length).fill(null);
+  if (!chuvaAna || chuvaAna.length === 0 || pontos.length === 0) return porLabel;
+
+  let i = 0;
+  for (const c of chuvaAna) {
+    const alvo = new Date(c.medidoEm).getTime();
+    while (
+      i < pontos.length - 1 &&
+      Math.abs(new Date(pontos[i + 1].medidoEm).getTime() - alvo) <=
+        Math.abs(new Date(pontos[i].medidoEm).getTime() - alvo)
+    ) {
+      i++;
+    }
+    porLabel[i] = c.chuvaMm;
+  }
+  return porLabel;
+}
+
 function desenharGrafico(resposta) {
   const canvas = document.getElementById('graficoHistorico');
   const vazio = document.getElementById('modalVazio');
@@ -715,6 +774,7 @@ function desenharGrafico(resposta) {
     vazio.textContent = pontos.length === 0
       ? 'Nenhuma leitura registrada nessa janela.'
       : 'Apenas uma leitura registrada nessa janela — sem dados suficientes para o gráfico.';
+    document.getElementById('modalChuvaLegenda').hidden = true;
     return;
   }
 
@@ -780,6 +840,24 @@ function desenharGrafico(resposta) {
     });
   }
 
+  // Chuva medida (ANA) — só nas 12 estações mapeadas e só quando há dado
+  // na janela; nas outras, resposta.chuvaAna vem [] e o gráfico fica
+  // idêntico ao de hoje (sem eixo direito).
+  const temChuva = Array.isArray(resposta.chuvaAna) && resposta.chuvaAna.length > 0;
+  const legendaChuva = document.getElementById('modalChuvaLegenda');
+  legendaChuva.hidden = !temChuva;
+  if (temChuva) {
+    datasets.push({
+      type: 'bar',
+      label: 'Chuva medida (ANA)',
+      data: alinharChuvaAosLabels(pontos, resposta.chuvaAna),
+      yAxisID: 'yChuva',
+      backgroundColor: 'rgba(47,123,196,0.35)',
+      borderWidth: 0,
+      order: 2,
+    });
+  }
+
   chartInstancia = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
@@ -799,13 +877,24 @@ function desenharGrafico(resposta) {
           ticks: { color: '#5f6470', callback: (v) => Number(v).toFixed(2) },
           title: { display: true, text: 'Metros' },
         },
+        ...(temChuva ? {
+          yChuva: {
+            position: 'right',
+            beginAtZero: true,
+            grid: { drawOnChartArea: false },
+            ticks: { color: '#5f6470', callback: (v) => Number(v).toFixed(0) },
+            title: { display: true, text: 'Chuva (mm)' },
+          },
+        } : {}),
       },
       plugins: {
         legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
         tooltip: {
           callbacks: {
             title: (items) => new Date(pontos[items[0].dataIndex].medidoEm).toLocaleString('pt-BR'),
-            label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' m',
+            label: (ctx) => ctx.dataset.yAxisID === 'yChuva'
+              ? ctx.dataset.label + ': ' + (ctx.parsed.y === null ? '—' : ctx.parsed.y.toFixed(1) + ' mm')
+              : ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' m',
           },
         },
       },

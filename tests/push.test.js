@@ -32,6 +32,27 @@ test('montarPayloadAlerta: status desconhecido cai pro texto cru em vez de quebr
   assert.equal(payload.body, 'algo_novo');
 });
 
+test('montarPayloadAlerta: sem tipo (regressão) continua com título 🌊, comportamento de nível', () => {
+  const payload = JSON.parse(montarPayloadAlerta({ cidade: 'Feliz', status: 'atencao' }));
+  assert.equal(payload.title, '🌊 Feliz');
+});
+
+test('montarPayloadAlerta: tipo chuva, status chuva_alerta', () => {
+  const payload = JSON.parse(montarPayloadAlerta({
+    cidade: 'Muçum', status: 'chuva_alerta', tipo: 'chuva', chuvaMmAcumulada: 42, janelaHoras: 6,
+  }));
+  assert.equal(payload.title, '🌧️ Muçum');
+  assert.equal(payload.body, '42mm em 6h — atenção');
+  assert.equal(payload.url, '/');
+});
+
+test('montarPayloadAlerta: tipo chuva, status chuva_normal', () => {
+  const payload = JSON.parse(montarPayloadAlerta({
+    cidade: 'Taquara', status: 'chuva_normal', tipo: 'chuva', chuvaMmAcumulada: 10, janelaHoras: 6,
+  }));
+  assert.equal(payload.body, 'chuva acumulada voltou a ficar abaixo do limiar');
+});
+
 test('ehInscricaoExpirada: 404 e 410 contam como expirada', () => {
   assert.equal(ehInscricaoExpirada({ statusCode: 404 }), true);
   assert.equal(ehInscricaoExpirada({ statusCode: 410 }), true);

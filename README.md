@@ -112,6 +112,8 @@ Em Settings → Environment Variables, adicione:
 | `VAPID_SUBJECT`     | opcional — idem, formato `mailto:seuemail@exemplo.com` |
 | `ANA_IDENTIFICADOR` | opcional — usuário da API da ANA, só pro cross-check (ver abaixo) |
 | `ANA_SENHA`         | opcional — senha da API da ANA, **nunca** commitar no repo |
+| `LIMIAR_CHUVA_6H_MM` | opcional, default `40` — mm acumulados na janela que disparam o alerta de chuva (ver abaixo) |
+| `JANELA_CHUVA_HORAS` | opcional, default `6` — tamanho da janela usada nesse alerta |
 
 Gere o `CRON_SECRET` com: `openssl rand -hex 32`
 
@@ -241,8 +243,8 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | Rota                                    | Descrição                          |
 | --------------------------------------- | ---------------------------------- |
 | `GET /api/painel`                       | todas as estações, estado atual     |
-| `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação    |
-| `GET /api/alertas`                      | últimos 30 alertas (mudança de status) |
+| `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação (inclui `chuvaAna`, chuva medida ANA na mesma janela) |
+| `GET /api/alertas`                      | últimos 30 alertas — nível (`tipo='nivel'`) e chuva acumulada (`tipo='chuva'`) misturados por data |
 | `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
 | `GET /api/coletar`                      | força uma coleta (requer o header)  |
 | `POST /api/push`                        | inscreve pra notificação push (`{endpoint, keys:{p256dh,auth}}`) |
@@ -522,6 +524,44 @@ considerar qualquer mudança maior.
   cada 15 min é barato.
 - Opcional de propósito: sem `ANA_IDENTIFICADOR`/`ANA_SENHA` configuradas,
   `buscarNiveisAna()` retorna vazio sem erro — não derruba a coleta.
+
+Além do nível, a mesma resposta da ANA já traz `Chuva_Adotada` — chuva
+acumulada **medida** na própria estação, diferente da previsão do
+Open-Meteo. Isso alimenta três coisas no painel, todas só nas 12 estações
+com código ANA mapeado (`lajeado`/`rocasales` ficam de fora, mesmo motivo
+acima):
+
+- **Chuva medida no card e no popup do mapa** (💧 X mm medidos na estação):
+  campo `chuvaMedidaAnaMm` em `/api/painel`, sempre rotulado "(ANA)" e numa
+  linha separada da previsão, pra nunca conflar medição real com modelo.
+- **Gráfico chuva × nível** no modal de histórico de cada estação: barras
+  de chuva medida (eixo direito, mm) sobrepostas à linha de nível (eixo
+  esquerdo, m), na mesma janela de tempo já selecionada (24h/3d/7d/30d).
+  `/api/historico` retorna `chuvaAna: [{chuvaMm, medidoEm}]`; o frontend
+  encaixa cada leitura de chuva no rótulo de nível mais próximo
+  (`alinharChuvaAosLabels` em `public/js/painel.js`) porque as duas fontes
+  não leem no mesmo instante. Valores brutos (não delta) — se `Chuva_Adotada`
+  reinicia periodicamente (não confirmado ao vivo), uma queda brusca na
+  barra não significa chuva negativa, só um possível reinício da contagem
+  da própria ANA (aviso disso aparece abaixo do gráfico quando a barra existe).
+- **Alerta de chuva acumulada** (`registrarAlertasChuva()` em
+  `lib/coletar.js`), independente do alerta de nível: soma os deltas
+  positivos de `chuva_mm` entre leituras consecutivas na janela
+  `JANELA_CHUVA_HORAS` (default 6h) — ignora quedas em vez de subtrair,
+  pra funcionar tanto se o valor for um total corrido quanto se reiniciar
+  em algum horário. Cruzando `LIMIAR_CHUVA_6H_MM` (default 40mm, ajustável
+  sem redeploy), grava uma linha em `alertas` com `tipo='chuva'` — mesma
+  tabela do alerta de nível, discriminada por essa coluna pra nunca
+  misturar o dedup de um com o do outro — e dispara push
+  (`🌧️ <cidade>` / "Xmm em Yh — atenção"). Segue exatamente o mesmo
+  critério de dedup do alerta de nível: só notifica na transição de
+  status, não a cada rodada de coleta enquanto o valor continuar alto.
+- **Badge de frescor por fonte** no card (`ANA: há X min`, ao lado do
+  frescor principal já existente): mostra a idade da leitura ANA mais
+  recente, independente da leitura do nivelguaiba. Puramente informativo
+  nesta fase — não substitui o número principal nem alimenta
+  status/alerta (ver ressalva de datum acima); serve só pra notar quando
+  uma fonte ficou defasada em relação à outra.
 
 ### Qualidade e transparência dos dados
 

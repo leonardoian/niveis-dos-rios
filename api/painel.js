@@ -121,6 +121,22 @@ export default async function handler(req, res) {
       chuvaAnaBruta.map((r) => [r.slug, Number(r.chuva_mm)])
     );
 
+    // Timestamp da leitura ANA mais recente, pra badge de frescor por fonte
+    // (Feature 3 — só informativo, não alimenta status/alerta). Consulta
+    // SEPARADA de chuvaAnaBruta acima: aquela filtra chuva_mm IS NOT NULL
+    // (pra pegar o último VALOR de chuva), reusá-la aqui mudaria de
+    // significado — poderia mostrar um timestamp mais antigo sempre que a
+    // leitura realmente mais recente tiver chuva_mm nulo.
+    const ultimaAnaBruta = await sql`
+      SELECT DISTINCT ON (slug) slug, medido_em
+      FROM leituras_ana
+      WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
+      ORDER BY slug, medido_em DESC
+    `;
+    const ultimaAnaPorSlug = new Map(
+      ultimaAnaBruta.map((r) => [r.slug, r.medido_em])
+    );
+
     const estacoes = linhas.map((r) => {
       const nivel = r.nivel_atual === null ? null : Number(r.nivel_atual);
       const cota = Number(r.cota_inundacao);
@@ -159,6 +175,8 @@ export default async function handler(req, res) {
         },
         nota: r.nota,
         chuvaMedidaAnaMm: chuvaAnaPorSlug.get(r.slug) ?? null,
+        medidoEmAna: ultimaAnaPorSlug.get(r.slug) ?? null,
+        frescorAna: ultimaAnaPorSlug.has(r.slug) ? calcularFrescor(ultimaAnaPorSlug.get(r.slug)) : null,
       };
     });
 

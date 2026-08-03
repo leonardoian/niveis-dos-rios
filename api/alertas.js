@@ -6,7 +6,7 @@ import { sql } from '../lib/db.js';
 export default async function handler(req, res) {
   try {
     const linhas = await sql`
-      SELECT a.slug, e.cidade, e.uf, e.rio, a.status, a.nivel, a.criado_em
+      SELECT a.slug, e.cidade, e.uf, e.rio, a.status, a.nivel, a.tipo, a.chuva_mm_acumulada, a.criado_em
       FROM alertas a
       JOIN estacoes e ON e.slug = a.slug
       ORDER BY a.criado_em DESC
@@ -19,7 +19,9 @@ export default async function handler(req, res) {
       uf: a.uf,
       rio: a.rio,
       status: a.status,
-      nivel: Number(a.nivel),
+      tipo: a.tipo,
+      nivel: a.nivel === null ? null : Number(a.nivel),
+      chuvaMmAcumulada: a.chuva_mm_acumulada === null ? null : Number(a.chuva_mm_acumulada),
       criadoEm: a.criado_em,
     }));
 

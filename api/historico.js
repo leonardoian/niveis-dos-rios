@@ -40,6 +40,18 @@ export default async function handler(req, res) {
       LIMIT 1
     `;
 
+    // Chuva medida (ANA) na mesma janela — só tem dado pras 12 estações
+    // mapeadas em ESTACOES_ANA; pras outras 2, ou fora da janela, vem []
+    // (o frontend só precisa checar length, não precisa saber por quê).
+    const chuvaAna = await sql`
+      SELECT chuva_mm, medido_em
+      FROM leituras_ana
+      WHERE slug = ${slug}
+        AND medido_em >= NOW() - (${janela} * INTERVAL '1 hour')
+        AND chuva_mm IS NOT NULL
+      ORDER BY medido_em ASC
+    `;
+
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
     return res.status(200).json({
       estacao: {
@@ -61,6 +73,10 @@ export default async function handler(req, res) {
       recorde: recorde.length > 0
         ? { nivel: Number(recorde[0].nivel), medidoEm: recorde[0].medido_em }
         : null,
+      chuvaAna: chuvaAna.map((c) => ({
+        chuvaMm: Number(c.chuva_mm),
+        medidoEm: c.medido_em,
+      })),
     });
   } catch (erro) {
     console.error('Falha ao buscar histórico:', erro);

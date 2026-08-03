@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ESTACOES_ANA, codigosParaLotes, converterCotaParaMetros, converterChuvaMm, converterDataHoraAna } from '../lib/ana.js';
+import { ESTACOES_ANA, codigosParaLotes, converterCotaParaMetros, converterChuvaMm, converterDataHoraAna, calcularChuvaAcumulada } from '../lib/ana.js';
 
 test('ESTACOES_ANA: tem exatamente 12 estações mapeadas', () => {
   assert.equal(Object.keys(ESTACOES_ANA).length, 12);
@@ -67,4 +67,58 @@ test('converterDataHoraAna: vazio/nulo retorna null', () => {
 
 test('converterDataHoraAna: string inválida retorna null em vez de "Invalid Date"', () => {
   assert.equal(converterDataHoraAna('isso não é uma data'), null);
+});
+
+test('calcularChuvaAcumulada: lista vazia retorna null (sem dado)', () => {
+  assert.equal(calcularChuvaAcumulada([]), null);
+});
+
+test('calcularChuvaAcumulada: uma única leitura retorna 0 (sem delta pra somar)', () => {
+  assert.equal(calcularChuvaAcumulada([{ chuvaMm: 12, medidoEm: '2026-07-30T12:00:00Z' }]), 0);
+});
+
+test('calcularChuvaAcumulada: sequência monotônica crescente soma o total', () => {
+  const leituras = [
+    { chuvaMm: 0, medidoEm: '2026-07-30T12:00:00Z' },
+    { chuvaMm: 5, medidoEm: '2026-07-30T13:00:00Z' },
+    { chuvaMm: 12, medidoEm: '2026-07-30T14:00:00Z' },
+  ];
+  assert.equal(calcularChuvaAcumulada(leituras), 12);
+});
+
+test('calcularChuvaAcumulada: queda no meio (reset) soma só os deltas positivos', () => {
+  const leituras = [
+    { chuvaMm: 5, medidoEm: '2026-07-30T12:00:00Z' },
+    { chuvaMm: 12, medidoEm: '2026-07-30T13:00:00Z' }, // +7
+    { chuvaMm: 3, medidoEm: '2026-07-30T14:00:00Z' },  // queda — ignorada
+    { chuvaMm: 9, medidoEm: '2026-07-30T15:00:00Z' },  // +6
+  ];
+  assert.equal(calcularChuvaAcumulada(leituras), 13);
+});
+
+test('calcularChuvaAcumulada: ignora leituras com chuvaMm null/undefined', () => {
+  const leituras = [
+    { chuvaMm: 2, medidoEm: '2026-07-30T12:00:00Z' },
+    { chuvaMm: null, medidoEm: '2026-07-30T12:30:00Z' },
+    { chuvaMm: 8, medidoEm: '2026-07-30T13:00:00Z' },
+    { chuvaMm: undefined, medidoEm: '2026-07-30T13:30:00Z' },
+  ];
+  assert.equal(calcularChuvaAcumulada(leituras), 6);
+});
+
+test('calcularChuvaAcumulada: todas as leituras null/undefined retorna null', () => {
+  const leituras = [
+    { chuvaMm: null, medidoEm: '2026-07-30T12:00:00Z' },
+    { chuvaMm: undefined, medidoEm: '2026-07-30T13:00:00Z' },
+  ];
+  assert.equal(calcularChuvaAcumulada(leituras), null);
+});
+
+test('calcularChuvaAcumulada: ordena internamente antes de somar (entrada fora de ordem)', () => {
+  const leituras = [
+    { chuvaMm: 9, medidoEm: '2026-07-30T15:00:00Z' },
+    { chuvaMm: 0, medidoEm: '2026-07-30T12:00:00Z' },
+    { chuvaMm: 5, medidoEm: '2026-07-30T13:00:00Z' },
+  ];
+  assert.equal(calcularChuvaAcumulada(leituras), 9);
 });
