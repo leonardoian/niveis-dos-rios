@@ -592,8 +592,10 @@ function abrirHistorico(slug) {
   notaEl.textContent = estacao.nota ? 'ⓘ ' + estacao.nota : '';
   document.getElementById('modalOverlay').hidden = false;
   document.body.style.overflow = 'hidden';
+  alternarAba('nivel');
   selecionarJanela(24);
   renderizarTendenciaVazao(slug);
+  renderizarPrevisaoClima(slug);
   renderizarEstimativaCota(slug);
 }
 
@@ -674,6 +676,57 @@ function renderizarTendenciaVazao(slug) {
   `;
 }
 
+// Card de previsão do tempo (7 dias) — ícone, temp máx/mín, chuva prevista
+// e chance de chuva, tudo via Open-Meteo (mesma fonte de renderizarTendenciaVazao
+// acima, é o mesmo array estacao.previsao, só que aqui o foco é clima em vez
+// de vazão).
+function renderizarPrevisaoClima(slug) {
+  const el = document.getElementById('prevClima');
+  const estacao = dados && dados.estacoes.find((e) => e.slug === slug);
+  const pontos = estacao && Array.isArray(estacao.previsao)
+    ? estacao.previsao.filter((p) => p.tempMax !== null)
+    : [];
+
+  if (pontos.length === 0) {
+    el.innerHTML = '<p class="prev-tendencia-vazio">Sem previsão do tempo disponível pra essa estação.</p>';
+    return;
+  }
+
+  const dias = pontos.map((p) => {
+    const diaSimples = String(p.dia).slice(0, 10);
+    const dataFmt = new Date(diaSimples + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' });
+    const chuva = p.chuvaMm === null || p.chuvaMm === undefined ? '—' : p.chuvaMm.toFixed(1) + 'mm';
+    const chance = p.chanceChuvaPct === null || p.chanceChuvaPct === undefined
+      ? ''
+      : `<span class="prev-clima-dia-chance">${p.chanceChuvaPct}%</span>`;
+
+    return `<div class="prev-clima-dia">
+      <span class="prev-clima-dia-data">${dataFmt}</span>
+      <span class="prev-clima-dia-icone" title="${condicaoTexto(p.condicaoCodigo)}">${condicaoEmoji(p.condicaoCodigo)}</span>
+      <span class="prev-clima-dia-temp">${Math.round(p.tempMax)}° / ${Math.round(p.tempMin)}°</span>
+      <span class="prev-clima-dia-chuva">💧 ${chuva}</span>
+      ${chance}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <p class="prev-tendencia-titulo">Previsão do tempo (7 dias) — Open-Meteo</p>
+    <div class="prev-clima-dias">${dias}</div>
+  `;
+}
+
+function alternarAba(nome) {
+  const nivel = nome === 'nivel';
+  document.getElementById('abaNivelBtn').classList.toggle('ativo', nivel);
+  document.getElementById('abaNivelBtn').setAttribute('aria-selected', String(nivel));
+  document.getElementById('abaPrevisaoBtn').classList.toggle('ativo', !nivel);
+  document.getElementById('abaPrevisaoBtn').setAttribute('aria-selected', String(!nivel));
+  document.getElementById('abaNivel').hidden = !nivel;
+  document.getElementById('abaPrevisao').hidden = nivel;
+}
+document.getElementById('abaNivelBtn').addEventListener('click', () => alternarAba('nivel'));
+document.getElementById('abaPrevisaoBtn').addEventListener('click', () => alternarAba('previsao'));
+
 function fecharHistorico() {
   document.getElementById('modalOverlay').hidden = true;
   document.body.style.overflow = '';
@@ -690,6 +743,8 @@ function fecharHistorico() {
   document.getElementById('modalNota').hidden = true;
   document.getElementById('modalNota').textContent = '';
   document.getElementById('modalChuvaLegenda').hidden = true;
+  document.getElementById('prevClima').innerHTML = '';
+  alternarAba('nivel');
 }
 
 function selecionarJanela(horas) {

@@ -27,6 +27,14 @@ function condicaoTexto(codigo) {
   return CONDICOES[codigo] || 'Condição desconhecida';
 }
 
+// Só o emoji (primeiro "token" de CONDICOES), sem duplicar a tabela WMO —
+// usado onde o ícone precisa ficar separado do texto (ex.: card de
+// previsão do tempo).
+function condicaoEmoji(codigo) {
+  const texto = CONDICOES[codigo];
+  return texto ? texto.split(' ')[0] : '❓';
+}
+
 // Mostra uma mensagem de erro dentro de #<elId> como uma <div class="aviso">
 // — usa textContent pra parte variável (nunca innerHTML + concatenação),
 // pra um "Não foi possível carregar: " + e.message nunca virar vetor de XSS

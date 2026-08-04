@@ -449,6 +449,17 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
   trade-off de não bater a API a cada coleta.
 - **Chuva prevista** aparece junto da tendência de vazão no modal de
   histórico (mesmo dado de `previsao`, campo `chuvaMm`).
+- **Chance de chuva** (`chanceChuvaPct`, `precipitation_probability_max` da
+  Open-Meteo) vem na mesma chamada de clima, sem custo extra — 0 a 100%,
+  `NULL` quando a API não retorna esse campo pro dia.
+
+### Aba "Previsão do tempo" no modal
+
+Cada estação, no modal de histórico, tem duas abas: "Nível" (gráfico de
+nível medido, igual sempre foi) e "Previsão do tempo" (card de 7 dias —
+ícone da condição, temp. máx/mín, chuva prevista e chance de chuva, mais a
+tendência de vazão que já existia). Sempre abre na aba "Nível". Dado 100%
+Open-Meteo, mesmo já usado no resto do painel — não é um serviço novo.
 
 ### Radar de chuva
 
@@ -461,6 +472,22 @@ disponíveis, o mais recente vira uma camada de tile no Leaflet. Zoom nativo
 do radar é 7 (o mapa abre em 8) — acima disso o Leaflet faz upscale
 automático da imagem, não é bug se ficar um pouco mais "pixelado" no zoom
 máximo. Atualiza sozinho a cada ~10 min enquanto ligado.
+
+### Chuva prevista no mapa
+
+Segunda camada opcional no mapa da bacia (botão "🌦️ Chuva prevista" — ícone
+diferente do radar de propósito, pra não confundir os dois), também
+desligada por padrão. Não é um mapa de precipitação real (não temos fonte
+própria de raster pra isso) — são círculos por estação, coloridos pela soma
+da chuva prevista (Open-Meteo, mesmo campo `previsao[].chuvaMm` do resto do
+painel) nos próximos 1/2/3/5/7 dias (seletor ao lado do botão). Escala fixa
+em mm absolutos (não muda com o período, então trocar de 1d pra 7d
+"molha" visivelmente mais o mapa) — 5 tons de azul, propositalmente longe
+da paleta de status (verde/laranja/vermelho) pra não confundir as duas
+informações. Círculos ficam sempre atrás dos marcadores de nível
+(`bringToBack`) e não capturam clique (`interactive:false`) — servem de
+contexto, não substituem os marcadores de status. Sem chamada de API extra:
+reaproveita o mesmo `/api/painel` que o resto do mapa já busca a cada 5 min.
 
 ### Notificações push
 

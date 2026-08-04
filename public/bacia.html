@@ -32,8 +32,26 @@
 
   <div class="mapa-topo">
     <p class="mapa-titulo">Localização das estações no mapa do RS</p>
-    <button id="radarToggle" type="button" title="Camada de radar de chuva (RainViewer)">🌧 Radar de chuva</button>
+    <div class="mapa-controles">
+      <select id="chuvaPrevistaDias" title="Período da chuva prevista acumulada">
+        <option value="1">1 dia</option>
+        <option value="2">2 dias</option>
+        <option value="3">3 dias</option>
+        <option value="5" selected>5 dias</option>
+        <option value="7">7 dias</option>
+      </select>
+      <button id="chuvaPrevistaToggle" type="button" title="Camada de chuva prevista acumulada (Open-Meteo)">🌦️ Chuva prevista</button>
+      <button id="radarToggle" type="button" title="Camada de radar de chuva (RainViewer)">🌧 Radar de chuva</button>
+    </div>
   </div>
+  <p class="mapa-legenda" id="chuvaPrevistaLegenda" hidden>
+    <span>Chuva prevista acumulada:</span>
+    <span class="legenda-item"><i class="legenda-cor-1"></i>&lt;5mm</span>
+    <span class="legenda-item"><i class="legenda-cor-2"></i>5–20mm</span>
+    <span class="legenda-item"><i class="legenda-cor-3"></i>20–50mm</span>
+    <span class="legenda-item"><i class="legenda-cor-4"></i>50–100mm</span>
+    <span class="legenda-item"><i class="legenda-cor-5"></i>&gt;100mm</span>
+  </p>
   <div id="mapa"></div>
 
   <div class="bacia">
@@ -83,7 +101,8 @@
     <p>Dados via <a href="https://nivelguaiba.com.br" target="_blank" rel="noopener">nivelguaiba.com.br</a>,
        que consome telemetria pública da SGB/CPRM e da ANA. Uso interno.</p>
     <p>Vazão e clima previstos via <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener">Open-Meteo / GloFAS</a>
-       — modelo global por coordenada, não é telemetria oficial nem previsão de nível.</p>
+       — modelo global por coordenada, não é telemetria oficial nem previsão de nível.
+       Camada "Chuva prevista" usa o mesmo dado (soma da chuva prevista dos próximos dias por estação).</p>
     <p>Radar de chuva via <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>
        — atualiza a cada ~10 min, camada opcional (botão acima do mapa).</p>
   </footer>

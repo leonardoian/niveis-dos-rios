@@ -39,7 +39,17 @@ header { display: flex; justify-content: space-between; align-items: flex-start;
 
 .mapa-topo { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 24px 0 10px; }
 .mapa-titulo { font-size: 14px; font-weight: 600; color: var(--txt2); margin: 0; }
+.mapa-controles { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 #radarToggle[data-ativo="1"] { background: var(--acento); color: var(--acento-contraste); border-color: var(--acento); }
+#chuvaPrevistaToggle[data-ativo="1"] { background: var(--acento); color: var(--acento-contraste); border-color: var(--acento); }
+.mapa-legenda { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--txt3); margin: 0 0 10px; }
+.legenda-item { display: inline-flex; align-items: center; gap: 4px; }
+.legenda-item i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.legenda-cor-1 { background: #dbe9f5; }
+.legenda-cor-2 { background: #a8cdea; }
+.legenda-cor-3 { background: #5b9bd5; }
+.legenda-cor-4 { background: #2b6cb0; }
+.legenda-cor-5 { background: #1a365d; }
 #mapa {
   height: 440px; border-radius: 12px; border: 1px solid var(--linha);
   background: var(--card);

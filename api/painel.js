@@ -86,7 +86,7 @@ export default async function handler(req, res) {
     // Previsão de vazão (m³/s, dado à parte do nível — ver lib/previsao.js) e
     // clima dos próximos dias.
     const previsaoBruta = await sql`
-      SELECT slug, dia, vazao_m3s, temp_max, temp_min, chuva_mm, condicao_codigo
+      SELECT slug, dia, vazao_m3s, temp_max, temp_min, chuva_mm, condicao_codigo, chance_chuva_pct
       FROM previsoes
       WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
         AND dia >= CURRENT_DATE
@@ -103,6 +103,7 @@ export default async function handler(req, res) {
         tempMin: p.temp_min === null ? null : Number(p.temp_min),
         chuvaMm: p.chuva_mm === null ? null : Number(p.chuva_mm),
         condicaoCodigo: p.condicao_codigo,
+        chanceChuvaPct: p.chance_chuva_pct === null ? null : Number(p.chance_chuva_pct),
       });
     }
 

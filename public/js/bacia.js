@@ -52,6 +52,9 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 const marcadores = new Map();
 
+let ultimoDados = null; // cache de dados.estacoes — redesenha a camada de chuva prevista sem re-fetch
+const circulosChuvaPrevista = new Map(); // slug -> L.CircleMarker
+
 function popupHtml(e) {
   const nivel = e.nivel === null ? '—' : e.nivel.toFixed(2) + ' m';
   let clima = '';
@@ -94,16 +97,86 @@ function atualizarMapa(estacoes) {
   }
 }
 
+// ---- Chuva prevista acumulada (Open-Meteo, mesmo dado de estacao.previsao
+// já usado no popup/card — opcional, desligada por padrão) ----
+// Escala fixa em mm absolutos (não muda com o período selecionado), pra
+// trocar de 1d→7d visivelmente "molhar mais" o mapa em vez de renormalizar.
+// Só tons de azul — sem risco de confundir com a paleta de status (CORES,
+// em comum.js: verde/laranja/vermelho/cinza).
+const CHUVA_PREVISTA_ESCALA = [
+  { max: 5, cor: '#dbe9f5' },
+  { max: 20, cor: '#a8cdea' },
+  { max: 50, cor: '#5b9bd5' },
+  { max: 100, cor: '#2b6cb0' },
+  { max: Infinity, cor: '#1a365d' },
+];
+function corChuvaPrevista(mm) {
+  return CHUVA_PREVISTA_ESCALA.find((f) => mm <= f.max).cor;
+}
+
+// Soma os primeiros `dias` de estacao.previsao (já vem ordenado ASC a
+// partir de hoje). Um dia com chuvaMm nulo dentro da janela entra como
+// 0mm em vez de marcar "incompleto" — mesma simplificação já usada em
+// renderizarTendenciaVazao no painel principal.
+function somaChuvaPrevista(estacao, dias) {
+  if (!Array.isArray(estacao.previsao)) return null;
+  const pontos = estacao.previsao.slice(0, dias);
+  const comDado = pontos.filter((p) => p.chuvaMm !== null);
+  if (comDado.length === 0) return null;
+  return comDado.reduce((acc, p) => acc + p.chuvaMm, 0);
+}
+
+// Círculos maiores e sem interação (não roubam clique do marcador de
+// status por cima), sempre mandados pra trás — camada de contexto, não
+// substitui os marcadores de nível.
+function atualizarChuvaPrevista(estacoes, dias) {
+  const vistos = new Set();
+  for (const e of estacoes) {
+    const coord = COORDS[e.slug];
+    if (!coord) continue;
+    const soma = somaChuvaPrevista(e, dias);
+    if (soma === null) continue;
+    vistos.add(e.slug);
+    const cor = corChuvaPrevista(soma);
+    let circulo = circulosChuvaPrevista.get(e.slug);
+    if (!circulo) {
+      circulo = L.circleMarker(coord, {
+        radius: 22, weight: 0, fillColor: cor, fillOpacity: 0.55, interactive: false,
+      }).addTo(mapa);
+      circulo.bringToBack();
+      circulosChuvaPrevista.set(e.slug, circulo);
+    } else {
+      circulo.setStyle({ fillColor: cor });
+    }
+  }
+  for (const [slug, circulo] of circulosChuvaPrevista) {
+    if (!vistos.has(slug)) {
+      mapa.removeLayer(circulo);
+      circulosChuvaPrevista.delete(slug);
+    }
+  }
+}
+
+function removerChuvaPrevista() {
+  for (const circulo of circulosChuvaPrevista.values()) mapa.removeLayer(circulo);
+  circulosChuvaPrevista.clear();
+}
+
 async function carregar() {
   try {
     const r = await fetch('/api/painel');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const dados = await r.json();
     document.getElementById('aviso').innerHTML = '';
+    ultimoDados = dados.estacoes;
 
     const porSlug = new Map(dados.estacoes.map((e) => [e.slug, e]));
 
     atualizarMapa(dados.estacoes);
+
+    if (document.getElementById('chuvaPrevistaToggle').dataset.ativo === '1') {
+      atualizarChuvaPrevista(dados.estacoes, Number(document.getElementById('chuvaPrevistaDias').value));
+    }
 
     for (const tier of TIERS) {
       const alvo = document.getElementById(tier.id);
@@ -180,4 +253,25 @@ document.getElementById('radarToggle').addEventListener('click', async (ev) => {
   // RainViewer publica frame novo a cada ~5-10 min — refresca nesse ritmo
   // enquanto a camada estiver ligada, pra não mostrar chuva desatualizada.
   timerRadar = setInterval(ligarRadar, 10 * 60 * 1000);
+});
+
+document.getElementById('chuvaPrevistaToggle').addEventListener('click', (ev) => {
+  const btn = ev.currentTarget;
+  const ativo = btn.dataset.ativo === '1';
+  if (ativo) {
+    btn.dataset.ativo = '0';
+    document.getElementById('chuvaPrevistaLegenda').hidden = true;
+    removerChuvaPrevista();
+    return;
+  }
+  btn.dataset.ativo = '1';
+  document.getElementById('chuvaPrevistaLegenda').hidden = false;
+  if (ultimoDados) {
+    atualizarChuvaPrevista(ultimoDados, Number(document.getElementById('chuvaPrevistaDias').value));
+  }
+});
+
+document.getElementById('chuvaPrevistaDias').addEventListener('change', (ev) => {
+  if (document.getElementById('chuvaPrevistaToggle').dataset.ativo !== '1') return;
+  if (ultimoDados) atualizarChuvaPrevista(ultimoDados, Number(ev.target.value));
 });

@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS previsoes (
     temp_min         NUMERIC(5,2),
     chuva_mm         NUMERIC(6,2),
     condicao_codigo  INT,               -- WMO weather code (Open-Meteo)
+    chance_chuva_pct SMALLINT,          -- 0-100, precipitation_probability_max (Open-Meteo)
     gerado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT previsoes_unicas UNIQUE (slug, dia)
 );
@@ -91,6 +92,7 @@ ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS temp_max NUMERIC(5,2);
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS temp_min NUMERIC(5,2);
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS condicao_codigo INT;
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS chance_chuva_pct SMALLINT;
 
 CREATE INDEX IF NOT EXISTS idx_previsoes_slug_dia
     ON previsoes (slug, dia);

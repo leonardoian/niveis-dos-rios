@@ -201,6 +201,11 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
   color: var(--txt3); padding: 4px 8px; border-radius: 6px;
 }
 .modal-fechar:hover { background: var(--bg); color: var(--txt); }
+
+.modal-abas { display: flex; gap: 4px; margin: 14px 0 4px; border-bottom: 1px solid var(--linha); }
+.aba-btn { font-size: 13px; padding: 8px 14px; border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--txt2); }
+.aba-btn.ativo { border-bottom-color: var(--acento); color: var(--acento); font-weight: 600; }
+
 .modal-janelas { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
 .modal-comparar { max-width: 900px; }
 .comparar-lista {
@@ -236,6 +241,15 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 .prev-dia-seta.estavel, .prev-dia-seta.primeiro { color: var(--txt3); }
 .prev-dia-valor { display: block; font-size: 10px; color: var(--txt2); font-variant-numeric: tabular-nums; }
 .prev-dia-chuva { display: block; font-size: 9px; color: var(--txt3); margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+.prev-clima { margin-bottom: 16px; }
+.prev-clima-dias { display: flex; gap: 6px; flex-wrap: wrap; }
+.prev-clima-dia { flex: 1; min-width: 78px; text-align: center; background: var(--bg); border: 1px solid var(--linha); border-radius: 8px; padding: 10px 6px; }
+.prev-clima-dia-data { display: block; font-size: 10px; color: var(--txt3); text-transform: capitalize; }
+.prev-clima-dia-icone { display: block; font-size: 24px; margin: 4px 0; }
+.prev-clima-dia-temp { display: block; font-size: 12px; font-weight: 600; color: var(--txt); }
+.prev-clima-dia-chuva { display: block; font-size: 11px; color: var(--acento); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.prev-clima-dia-chance { display: block; font-size: 10px; color: var(--txt3); margin-top: 1px; }
 
 /* Modo apresentação: some com controles/seções secundárias e aumenta os
    cards, pra dar pra ler de longe num monitor de sala durante uma cheia. */
