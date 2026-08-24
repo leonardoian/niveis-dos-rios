@@ -143,18 +143,53 @@ function renderizarDivergencia(d) {
   }
 }
 
+function renderizarCurva(d) {
+  document.getElementById('janelaCurva').textContent = d.janelaDias;
+
+  const corpo = document.getElementById('corpoCurva');
+  if (d.estacoes.length === 0) {
+    corpo.innerHTML = `<tr><td colspan="6" class="vazio">Nenhuma estimativa avaliada ainda. A curva só é publicada com pelo menos ${d.minimos.pares} dias pareados e R² ≥ ${d.minimos.r2}, e a avaliação só entra depois que o dia previsto passa — então isso leva algumas semanas de histórico pra aparecer.</td></tr>`;
+  } else {
+    corpo.innerHTML = d.estacoes.map((e) => {
+      const c = e.curva;
+      const ajuste = !c ? '—' : `${c.n} dias · R² ${c.r2 === null ? '—' : c.r2.toFixed(2)}`;
+      return `<tr>
+        <td>${e.cidade}/${e.uf}<br><small style="color:var(--txt3)">${e.rio}</small></td>
+        <td class="num">±${e.erroMedioM.toFixed(2)} m</td>
+        <td class="num">±${e.erroMedianoM.toFixed(2)} m</td>
+        <td class="num">${(e.viesM >= 0 ? '+' : '') + e.viesM.toFixed(2)} m</td>
+        <td class="num">${e.diasAvaliados}</td>
+        <td class="num">${ajuste}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  const nota = document.getElementById('curvaSemAvaliacao');
+  if (d.semAvaliacao.length > 0) {
+    nota.textContent =
+      'Com curva ajustada mas ainda sem dia avaliado: ' +
+      d.semAvaliacao.map((e) => `${e.cidade}/${e.uf}`).join(', ') +
+      ' — a curva existe, só não houve ainda um dia passado com estimativa publicada pra conferir.';
+    nota.hidden = false;
+  }
+}
+
 async function carregar() {
   const sub = document.getElementById('sub');
   try {
     // As duas em paralelo: são independentes, e a página só fica útil com
     // as duas — não faz sentido serializar a espera.
-    const [saude, divergencia] = await Promise.all([
-      fetch('/api/saude').then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
-      fetch('/api/divergencia').then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+    const buscar = (rota) => fetch(rota).then((r) => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+    const [saude, divergencia, curva] = await Promise.all([
+      buscar('/api/saude'), buscar('/api/divergencia'), buscar('/api/curva'),
     ]);
 
     renderizarSaude(saude);
     renderizarDivergencia(divergencia);
+    renderizarCurva(curva);
 
     const comparadas = divergencia.estacoes.length;
     sub.textContent = `${comparadas} estaç${comparadas === 1 ? 'ão comparada' : 'ões comparadas'} com a ANA · saúde da coleta em 24h e 7 dias`;

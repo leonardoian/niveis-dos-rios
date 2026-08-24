@@ -97,6 +97,11 @@ ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS temp_min NUMERIC(5,2);
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS condicao_codigo INT;
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS chance_chuva_pct SMALLINT;
+-- Nível estimado a partir da vazão prevista, pela curva empírica da estação
+-- (ver curvas_nivel e lib/curva.js). NULL quando a estação não tem curva
+-- confiável ou a vazão caiu fora da faixa ajustada — que é a maioria dos
+-- casos no começo, de propósito.
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS nivel_estimado_m NUMERIC(7,2);
 
 CREATE INDEX IF NOT EXISTS idx_previsoes_slug_dia
     ON previsoes (slug, dia);
@@ -175,6 +180,30 @@ ALTER TABLE leituras_ana ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
 
 CREATE INDEX IF NOT EXISTS idx_leituras_ana_slug_data
     ON leituras_ana (slug, medido_em DESC);
+
+-- Curva empírica vazão → nível por estação (ver lib/curva.js), reajustada
+-- no máximo 1x/dia a partir do histórico pareado que já temos:
+-- previsoes.vazao_m3s (modelo) × média diária de leituras.nivel (medido).
+--
+-- NÃO é curva-chave: ajusta ao mesmo tempo a relação física da régua e o
+-- viés do GloFAS naquele ponto da grade. É impura fisicamente e útil
+-- preditivamente — e, diferente da vazão crua, produz um número que dá pra
+-- CONFERIR contra medição real depois, porque nível a gente mede.
+--
+-- Uma linha por estação (o slug é a PK): a curva é reajustada sobre a
+-- janela inteira a cada vez, não versionada. Guardar histórico de
+-- coeficiente não ajudaria a responder nada que a gente pergunte hoje.
+CREATE TABLE IF NOT EXISTS curvas_nivel (
+    slug            TEXT PRIMARY KEY REFERENCES estacoes(slug) ON DELETE CASCADE,
+    alfa            DOUBLE PRECISION NOT NULL,   -- ln(h) = alfa + beta·ln(Q)
+    beta            DOUBLE PRECISION NOT NULL,
+    n               INT NOT NULL,                -- pares usados no ajuste
+    r2              DOUBLE PRECISION,            -- no espaço log; NULL = indefinido
+    erro_medio_m    NUMERIC(7,3),                -- erro absoluto médio, em metros
+    vazao_min_m3s   DOUBLE PRECISION NOT NULL,   -- faixa observada: fora dela não
+    vazao_max_m3s   DOUBLE PRECISION NOT NULL,   -- extrapolamos (é onde erraria feio)
+    ajustada_em     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- Uma linha por rodada de coleta — o histórico de saúde das fontes, que o
 -- `frescor` do painel não dá: ele diz se o dado está velho AGORA, não se

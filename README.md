@@ -29,6 +29,9 @@ estático (`/public`) + Neon Postgres. Não é sistema oficial de alerta.
   normal — Web Push nativa do navegador, sem Telegram/Firebase.
 - **Alerta de subida rápida** — avisa por ritmo (cm/h sustentados), não só
   quando um patamar de cota já foi cruzado.
+- **Previsão de nível em metros** (experimental) — curva empírica ajustada
+  com o histórico da própria estação, que transforma a vazão do modelo num
+  número conferível, com o erro dela sempre ao lado.
 - **Radar de chuva** opcional no mapa da bacia (RainViewer).
 - **Página de confiança nas fontes** — uptime da coleta e comparação entre as
   duas fontes de nível (nivelguaiba × ANA oficial), pra saber onde as réguas
@@ -55,6 +58,7 @@ api/acerto.js                         acerto da estimativa de cota, por anteced�
 api/push.js                           inscrição/cancelamento de notificação push (POST/DELETE)
 api/saude.js                          histórico de saúde da coleta (uptime por fonte, lacunas)
 api/divergencia.js                    comparação nivelguaiba × ANA, por estação
+api/curva.js                          acerto da previsão de nível, medido contra o nível real
 lib/db.js                             conexão com o Neon
 lib/feed.js                           leitura e parse do feed JSON
 lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão + estimativas + push)
@@ -62,6 +66,7 @@ lib/previsao.js                       busca vazão (GloFAS) e clima (Open-Meteo)
 lib/calculo.js                        funções puras (classificar, cm/h, frescor, ETA cota) — testadas em tests/
 lib/push.js                           envio de notificação push (Web Push/VAPID) — testado em tests/
 lib/ana.js                            cross-check com a API oficial da ANA — testado em tests/
+lib/curva.js                          curva empírica vazão→nível (ajuste log-log) — testado em tests/
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
 tests/                                testes automatizados (node --test, sem dependência nova)
@@ -271,6 +276,7 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
 | `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha |
 | `GET /api/divergencia?dias=30`          | diferença entre nivelguaiba e ANA por estação (mediana, oscilação, deriva) |
+| `GET /api/curva?dias=90`                | erro da previsão de nível contra o nível medido, por estação |
 | `GET /api/coletar`                      | força uma coleta (requer o header) — 502 se o feed de nível estiver fora, com o corpo dizendo o que as outras fontes conseguiram fazer |
 | `POST /api/push`                        | inscreve pra notificação push (`{endpoint, keys:{p256dh,auth}}`) |
 | `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
@@ -724,6 +730,66 @@ acima):
   nesta fase — não substitui o número principal nem alimenta
   status/alerta (ver ressalva de datum acima); serve só pra notar quando
   uma fonte ficou defasada em relação à outra.
+
+### Previsão de nível: a curva empírica (experimental)
+
+O README sempre disse — e continua verdade — que converter vazão em nível
+"de verdade" exige a curva-chave da estação, que não temos. **Isto não é
+uma curva-chave.**
+
+É uma regressão sobre dado que já estava no banco: para cada dia passado, a
+vazão que o GloFAS estimou pra aquele dia (`previsoes.vazao_m3s`, que fica
+guardada mesmo depois do dia vencer) contra o nível que a estação
+**realmente mediu** (média diária de `leituras`). O que ela ajusta é a
+composição de duas coisas: a relação física vazão-nível daquela régua **e** o
+viés do modelo naquele ponto da grade. Fisicamente é impuro. Mas o objetivo
+não é interpretação física, é valor preditivo: *"quando o GloFAS diz 800
+m³/s aqui, esta estação historicamente marcou ~12 m"*.
+
+**O ganho real não é a conveniência de ler em metros — é auditabilidade.** A
+vazão prevista é hoje o único número do painel que não dá pra conferir: não
+temos medição independente de vazão, só outro resultado do mesmo modelo, e
+comparar modelo com modelo não é validação (é exatamente o argumento que a
+página `/acerto` já usava pra se recusar a avaliar vazão). Convertida em
+nível, ela vira falsificável — nível a gente mede. É isso que
+`GET /api/curva` e o terceiro bloco de `/fontes` mostram: erro médio, erro
+mediano e **viés com sinal** de cada estação, contra o que aconteceu.
+
+Viés separado do erro absoluto de propósito: uma curva que erra ±30 cm pra
+cima e pra baixo é coisa diferente de uma que erra 30 cm **sempre** pra
+cima — a segunda dá pra corrigir.
+
+Detalhes de implementação que são decisões, não acidentes:
+
+- **Lei de potência ajustada em log-log** (`h = a·Q^b` vira reta sobre
+  `ln Q × ln h`): mínimos quadrados de solução fechada, sem iteração e sem
+  dependência nova. Dois parâmetros só, de propósito — com poucas dezenas de
+  pontos diários e ruído dos dois lados, um modelo mais flexível decoraria
+  o ruído em vez da relação.
+- **Não extrapola.** `estimarNivel` devolve `null` quando a vazão está fora
+  da faixa em que a curva foi ajustada. É onde uma lei de potência erra
+  feio — e numa cheia, justamente quando importa, erraria pra cima. Por isso
+  é normal alguns dias da previsão aparecerem sem `≈ m`; o rodapé no modal
+  explica isso em vez de deixar o buraco sem justificativa.
+- **Só publica com lastro**: mínimo de 30 pares e R² ≥ 0,5
+  (`MINIMO_PARES`/`MINIMO_R2` em `lib/curva.js`). Abaixo disso a curva é
+  ajustada e guardada, mas não vira número na tela. No começo, a maioria das
+  estações vai estar assim — e é assim que tem que ser.
+- **O número nunca aparece sozinho.** O rodapé do modal traz sempre n, R² e
+  erro médio junto do `≈ m`. Mostrar "≈ 12,40 m" sem dizer que a curva erra
+  ±0,45 m em média convidaria a confiar mais do que o número aguenta.
+- **`nivel_estimado_m` é o único campo do `INSERT` de previsões sem
+  `COALESCE`.** Se a curva deixou de ser confiável, o certo é apagar a
+  estimativa antiga, não preservá-la — manter um número que o modelo atual
+  não sustenta é pior que não mostrar nada.
+- **Reajuste 1x/dia**, janela de 1 ano. Os pares são médias diárias, então
+  reajustar mais de uma vez por dia refaria a mesma conta; e 1 ano cobre
+  estiagem e cheia (a curva precisa das duas pontas pra ter faixa útil) sem
+  arrastar dado que talvez nem reflita a régua atual — a recalibração de
+  2024 em Porto Alegre é o lembrete de que régua muda.
+- **A avaliação não precisou de tabela nova.** `previsoes` guarda linhas de
+  dias passados com o `nivel_estimado_m` que valia na época, e `leituras`
+  tem o que aconteceu: é uma query sobre dado que já existe.
 
 ### Alerta de subida rápida
 

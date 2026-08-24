@@ -65,6 +65,33 @@
   </div>
   <p class="nota" id="semAna" hidden></p>
 
+  <h2>A previsão de nível acerta?</h2>
+  <p class="nota">
+    Comparação entre o nível que a curva empírica estimou a partir da vazão do modelo e o
+    que a estação realmente mediu no dia, nos últimos <span id="janelaCurva">90</span> dias.
+    <b>Não é curva-chave oficial</b> — é uma regressão sobre o nosso próprio histórico, e
+    existe justamente pra tornar a vazão prevista <i>conferível</i>: vazão crua não dá pra
+    validar (não temos medição independente dela), nível dá.
+  </p>
+  <div class="tabela-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Estação</th>
+          <th title="Erro absoluto médio entre estimado e medido">Erro médio</th>
+          <th title="Metade dos dias errou menos que isso">Erro mediano</th>
+          <th title="Positivo = a curva estima alto demais, de forma sistemática">Viés</th>
+          <th title="Dias passados com estimativa publicada e medição pra comparar">Dias</th>
+          <th title="Pares usados no ajuste e R² no espaço log">Ajuste</th>
+        </tr>
+      </thead>
+      <tbody id="corpoCurva">
+        <tr><td colspan="6" class="vazio">Carregando…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="nota" id="curvaSemAvaliacao" hidden></p>
+
   <footer class="rodape-fontes">
     <p><b>Não é sistema oficial de alerta.</b> Em emergência, acione a Defesa
        Civil (199) ou os Bombeiros (193).</p>

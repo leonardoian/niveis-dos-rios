@@ -86,7 +86,7 @@ export default async function handler(req, res) {
     // Previsão de vazão (m³/s, dado à parte do nível — ver lib/previsao.js) e
     // clima dos próximos dias.
     const previsaoBruta = await sql`
-      SELECT slug, dia, vazao_m3s, temp_max, temp_min, chuva_mm, condicao_codigo, chance_chuva_pct
+      SELECT slug, dia, vazao_m3s, temp_max, temp_min, chuva_mm, condicao_codigo, chance_chuva_pct, nivel_estimado_m
       FROM previsoes
       WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
         AND dia >= CURRENT_DATE
@@ -104,6 +104,7 @@ export default async function handler(req, res) {
         chuvaMm: p.chuva_mm === null ? null : Number(p.chuva_mm),
         condicaoCodigo: p.condicao_codigo,
         chanceChuvaPct: p.chance_chuva_pct === null ? null : Number(p.chance_chuva_pct),
+        nivelEstimadoM: p.nivel_estimado_m === null ? null : Number(p.nivel_estimado_m),
       });
     }
 
@@ -111,6 +112,19 @@ export default async function handler(req, res) {
     // diferente da previsão do Open-Meteo acima — só existe pras 12 estações
     // com código ANA mapeado (ESTACOES_ANA), e só depois da primeira coleta
     // com ANA_IDENTIFICADOR/ANA_SENHA configuradas.
+    // Qualidade da curva vazão→nível de cada estação (ver lib/curva.js). Vai
+    // junto do número estimado de propósito: uma previsão de nível sem o
+    // erro médio dela ao lado convida a confiar mais do que deveria.
+    const curvasBrutas = await sql`
+      SELECT slug, n, r2, erro_medio_m, ajustada_em FROM curvas_nivel
+    `;
+    const curvaPorSlug = new Map(curvasBrutas.map((c) => [c.slug, {
+      n: c.n,
+      r2: c.r2 === null ? null : Number(c.r2),
+      erroMedioM: c.erro_medio_m === null ? null : Number(c.erro_medio_m),
+      ajustadaEm: c.ajustada_em,
+    }]));
+
     const chuvaAnaBruta = await sql`
       SELECT DISTINCT ON (slug) slug, chuva_mm
       FROM leituras_ana
@@ -175,6 +189,7 @@ export default async function handler(req, res) {
           data: r.data_cheia_2024,
         },
         nota: r.nota,
+        curvaNivel: curvaPorSlug.get(r.slug) ?? null,
         chuvaMedidaAnaMm: chuvaAnaPorSlug.get(r.slug) ?? null,
         medidoEmAna: ultimaAnaPorSlug.get(r.slug) ?? null,
         frescorAna: ultimaAnaPorSlug.has(r.slug) ? calcularFrescor(ultimaAnaPorSlug.get(r.slug)) : null,

@@ -241,6 +241,10 @@ select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px
 .prev-dia-seta.estavel, .prev-dia-seta.primeiro { color: var(--txt3); }
 .prev-dia-valor { display: block; font-size: 10px; color: var(--txt2); font-variant-numeric: tabular-nums; }
 .prev-dia-chuva { display: block; font-size: 9px; color: var(--txt3); margin-top: 2px; font-variant-numeric: tabular-nums; }
+/* Nível estimado pela curva empírica — cor de acento pra separar do número
+   do modelo (m³/s) logo acima, mas menor que ele: é derivado, não medido. */
+.prev-dia-nivel { display: block; font-size: 10px; color: var(--acento); font-weight: 600; font-variant-numeric: tabular-nums; }
+.prev-curva-nota { font-size: 11px; color: var(--txt3); line-height: 1.5; margin: 10px 0 0; }
 
 .prev-clima { margin-bottom: 16px; }
 .prev-clima-dias { display: flex; gap: 6px; flex-wrap: wrap; }
