@@ -85,7 +85,7 @@ Continua **sem build step** — os `<link rel="stylesheet">` e `<script src="...
 ### 1. Banco (Neon)
 
 Abra o SQL Editor do seu projeto no Neon e rode o conteúdo de `schema.sql`.
-Isso cria as tabelas `estacoes`, `leituras` e `alertas`, e já insere as 13
+Isso cria as tabelas `estacoes`, `leituras` e `alertas`, e já insere as 14
 estações com as cotas de inundação.
 
 Confira:
@@ -179,7 +179,18 @@ do Vercel estar no ar. Pra ativar:
 
 1. No GitHub: Settings → Secrets and variables → Actions → New repository
    secret → nome `DATABASE_URL`, valor a connection string do Neon.
-2. Pronto — o workflow já está no repo e roda sozinho a partir do próximo
+2. **Se você usa as features opcionais, repita pros secrets delas.** As duas
+   fontes rodam o mesmo `executarColeta()`, mas cada uma lê o ambiente do
+   lugar onde roda: o que está no Vercel **não** chega ao GitHub Actions. Como
+   toda feature opcional degrada em silêncio quando a variável falta (é o
+   design — ver `lib/ana.js`/`lib/push.js`), o sintoma de esquecer é sutil:
+   metade das coletas do dia grava chuva da ANA e dispara push, a outra
+   metade não, sem erro em lugar nenhum. Os secrets são
+   `ANA_IDENTIFICADOR`, `ANA_SENHA`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`
+   e `VAPID_SUBJECT`; `LIMIAR_CHUVA_6H_MM` e `JANELA_CHUVA_HORAS` não são
+   segredo e vão na aba **Variables** ao lado (vazio = default do código).
+   O workflow já referencia todos — só faltam os valores.
+3. Pronto — o workflow já está no repo e roda sozinho a partir do próximo
    agendamento. Pra testar sem esperar, vá em Actions → "Coleta de níveis dos
    rios" → Run workflow (usa o gatilho `workflow_dispatch`).
 
@@ -202,7 +213,7 @@ curl -H "Authorization: Bearer SEU_CRON_SECRET" \
 Resposta esperada:
 
 ```json
-{ "ok": true, "recebidas": 13, "inseridas": 13, "ignoradas": [], "alertas": [] }
+{ "ok": true, "recebidas": 14, "inseridas": 14, "ignoradas": [], "alertas": [] }
 ```
 
 A coluna `velocidadeCmH` só aparece a partir da segunda coleta — ela precisa de
@@ -246,7 +257,7 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação (inclui `chuvaAna`, chuva medida ANA na mesma janela) |
 | `GET /api/alertas`                      | últimos 30 alertas — nível (`tipo='nivel'`) e chuva acumulada (`tipo='chuva'`) misturados por data |
 | `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
-| `GET /api/coletar`                      | força uma coleta (requer o header)  |
+| `GET /api/coletar`                      | força uma coleta (requer o header) — 502 se o feed de nível estiver fora, com o corpo dizendo o que as outras fontes conseguiram fazer |
 | `POST /api/push`                        | inscreve pra notificação push (`{endpoint, keys:{p256dh,auth}}`) |
 | `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
 
@@ -314,10 +325,67 @@ todo lugar.
 **Nota sobre `/api/push`** (adicionado depois desta revisão): diferente de
 `/api/coletar`, é uma rota pública de propósito — qualquer visitante pode se
 inscrever pra notificação, igual um formulário de "avise-me" comum, sem
-segredo nem sessão. Só valida formato (`endpoint`/`keys.p256dh`/`keys.auth`
-presentes) antes de gravar. Não tem rate limit — risco aceito dado o porte
-do projeto (uso interno, sem tráfego público relevante); se isso mudar, o
+segredo nem sessão. Não tem rate limit — risco aceito dado o porte do
+projeto (uso interno, sem tráfego público relevante); se isso mudar, o
 próximo passo seria limitar por IP.
+
+### Segunda rodada de revisão
+
+Uma verificação posterior do repositório inteiro (testes, dependências,
+frontend nas 3 páginas com a CSP real aplicada, e a coleta ponta a ponta
+com banco e feed simulados) achou mais isto, tudo já corrigido:
+
+- **SSRF pelo `endpoint` de `/api/push`.** A validação antiga só conferia
+  que `endpoint`/`keys.p256dh`/`keys.auth` estavam presentes — e o
+  `endpoint` é depois requisitado **pelo nosso servidor**, a cada alerta,
+  pra sempre. O `web-push` só checa que é string não-vazia
+  (`web-push-lib.js:91`), não o host: dava pra registrar
+  `http://169.254.169.254/latest/meta-data/` ou qualquer host interno e
+  virar um SSRF cego com repetição automática. Agora `endpointPermitido()`
+  (`lib/push.js`, pura e testada) exige HTTPS num dos quatro serviços de
+  push reais — `fcm.googleapis.com`, `web.push.apple.com`,
+  `*.push.services.mozilla.com`, `*.notify.windows.com` — e o mesmo filtro
+  roda **de novo na saída**, em `enviarNotificacoesAlerta()`, pra cobrir
+  linhas gravadas antes da allowlist existir. `endpoint`/`p256dh`/`auth`
+  também ganharam limite de tamanho.
+- **`erro.message` cru no corpo dos 500.** As 4 rotas públicas de leitura
+  (`painel`/`historico`/`alertas`/`acerto`) devolviam a mensagem do driver
+  do Neon — que pode citar nome de tabela/coluna e detalhe de conexão — pra
+  quem chamasse direto. Agora o corpo é `{"erro":"Falha interna."}` e o erro
+  real fica só no `console.error` (logs do Vercel). Sem mudança visível no
+  front, que nunca leu esse campo (usa `'HTTP ' + status`). `/api/coletar`
+  mantém a mensagem real de propósito: exige o `CRON_SECRET`, e quem chama
+  é o operador.
+- **`api/push.js` era o único handler sem `try/catch`.** Uma falha de banco
+  virava rejeição não tratada e `FUNCTION_INVOCATION_FAILED` opaco, em vez
+  do JSON de erro que as outras 5 rotas devolvem.
+- **Workflow sem `permissions:`.** `.github/workflows/coletar.yml` herdava o
+  default do repositório; agora declara `permissions: {}`, já que o job só
+  precisa de rede de saída.
+
+E dois problemas de robustez, não de segurança:
+
+- **O feed de nível derrubava a coleta inteira.** `executarColeta()` abria
+  com um `await buscarFeed()` cru, e `buscarFeed()` lança em qualquer HTTP
+  não-2xx. Resultado: com o feed em 403/500, a função morria na primeira
+  linha e **nenhuma** query chegava a rodar — previsão (Open-Meteo) e
+  cross-check da ANA, que não dependem do feed pra absolutamente nada,
+  ficavam de fora junto, justo quando uma fonte alternativa é mais útil.
+  Contradizia o próprio comentário logo abaixo ("Independe do feed de nível
+  ter respondido ou não"). Agora a falha é capturada, vira `erroFeed` no
+  resultado, e o resto da coleta segue. O caminho de feed que responde
+  **vazio** já era tratado e continua igual (`ok: true` + aviso) — é uma
+  coleta bem-sucedida sem novidade, coisa diferente de fonte fora do ar.
+- **Sinal de monitoramento preservado.** Como a coleta agora não explode
+  mais, `/api/coletar` poderia passar a devolver 200 sempre e o agendador
+  externo nunca mais alertaria. Pra não trocar um bug por outro, a rota
+  devolve **502** quando `ok: false`, com o corpo completo — o operador
+  continua sendo avisado, e a resposta diz o que as outras fontes
+  conseguiram fazer apesar da falha.
+- **Secrets faltando no GitHub Actions.** O workflow passava só
+  `DATABASE_URL`, então a Fonte B rodava uma coleta silenciosamente menor
+  que a Fonte A (sem ANA, sem alerta de chuva, sem push). Ver o passo 2 da
+  seção de agendamento.
 
 ### Organização do CSS/JS entre as 3 páginas
 
@@ -374,7 +442,7 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
 ### Estimativa de cota e sua validação
 
 - **Estimativa "quanto falta pra cota" / "volta ao normal"** (`calcularEtaCota`
-  em `public/index.html`, usada tanto no card quanto no modal de histórico):
+  em `public/js/painel.js`, usada tanto no card quanto no modal de histórico):
   extrapolação linear simples da tendência **medida agora** (cm/h), não do
   modelo de vazão de dias. Dois casos, mutuamente exclusivos:
   - subindo e abaixo da cota → "⏱ atinge a cota em ~Xh";
@@ -391,7 +459,7 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
   tabela `estimativas_cota`; `registrarEstimativasCota`/`avaliarEstimativasCota`
   em `lib/coletar.js`; `calcularEtaCota` extraída pra `lib/calculo.js`,
   compartilhada em espírito com `renderizarEstimativaCota` do painel — a
-  mesma conta reimplementada nos dois lados, já que `public/index.html` é
+  mesma conta reimplementada nos dois lados, já que `public/js/painel.js` é
   script solto sem bundler e não dá pra importar `lib/`). Ideia veio de
   analisar o `enchentes.lab4ge.com`, que tem uma página parecida — mas com
   um escopo bem mais restrito, de propósito:
@@ -521,10 +589,16 @@ de `push_subscriptions` — sem faxina manual.
 `lib/ana.js` busca, a cada coleta, a leitura mais recente de 12 das 14
 estações direto da API oficial da ANA (`hidrowebservice`,
 `HidroinfoanaSerieTelemetricaAdotada`) e grava numa tabela separada,
-`leituras_ana` — **não substitui** a fonte principal
-(`nivelguaiba.com.br`, via `lib/feed.js`) e **não é lida pelo painel**, é
-só um registro pra comparar as duas fontes ao longo do tempo antes de
-considerar qualquer mudança maior.
+`leituras_ana` — que **não substitui** a fonte principal
+(`nivelguaiba.com.br`, via `lib/feed.js`).
+
+Duas colunas, dois papéis, e vale não confundir: o **`nivel`** da ANA é
+puro cross-check — nunca entra no cálculo de nível/status/alerta, é só um
+registro pra comparar as duas fontes ao longo do tempo antes de considerar
+qualquer mudança maior. Já a **`chuva_mm`** *é* lida pelo painel (ver
+"Chuva medida" logo abaixo): alimenta `chuvaMedidaAnaMm`/`frescorAna` em
+`/api/painel`, `chuvaAna` em `/api/historico` e o alerta `tipo='chuva'` —
+sempre rotulada "(ANA)" e em linha separada da previsão.
 
 - **Por que só 12 das 14**: `lajeado` e `rocasales` ficaram de fora porque
   o inventário oficial da ANA não deu uma resposta inequívoca pra elas —
@@ -629,7 +703,7 @@ acima):
   cita "3 metros" ou "5,35 m" não achar que a gente inventou um número
   diferente.
 - **Status de saúde das fontes** (rodapé, `renderizarStatusFontes` em
-  `public/index.html`; campo novo `ultimaPrevisao` em `/api/painel`, MAX
+  `public/js/painel.js`; campo novo `ultimaPrevisao` em `/api/painel`, MAX
   de `previsoes.gerado_em`): mostra, à parte do frescor por estação, se as
   duas fontes externas (feed de nível do nivelguaiba.com.br e
   vazão/clima da Open-Meteo) estão respondendo — com limiares próprios pra
@@ -668,11 +742,15 @@ acima):
   ícone e nome próprios em vez de aba do navegador. `index.html` e
   `bacia.html` linkam o mesmo manifest + tags da Apple (`apple-touch-icon`,
   `apple-mobile-web-app-*`), já que o iOS não segue o manifest sozinho pra
-  isso. **De propósito não tem service worker** — então funciona bem pra
-  "Adicionar à tela de início" (menu do navegador, manual) em Android e
-  iOS, mas o banner automático "Instalar app" do Chrome/Android (que exige
-  service worker) não deve aparecer sozinho. Cache offline ficaria pra uma
-  extensão futura, se for necessário.
+  isso. O único service worker é o `public/sw.js`, registrado por
+  `public/js/push.js` **apenas quando a pessoa ativa as notificações** — e
+  ele só trata os eventos `push`/`notificationclick`, **sem cache de nada**
+  (cache agressivo numa ferramenta de tempo real mostraria nível
+  desatualizado como se fosse atual). Como não há handler de `fetch`, o
+  banner automático "Instalar app" do Chrome/Android pode não aparecer
+  sozinho; "Adicionar à tela de início" pelo menu do navegador funciona
+  normalmente em Android e iOS. Cache offline ficaria pra uma extensão
+  futura, se for necessário.
 - **Mobile**: `header .acoes` (os botões do topo) e `header` de `bacia.html`
   usam `flex-wrap: wrap` — sem isso, o navegador no celular expandia a
   viewport inteira da página pra caber os 7 botões numa linha só (bug real,

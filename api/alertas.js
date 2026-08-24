@@ -29,6 +29,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ alertas });
   } catch (erro) {
     console.error('Falha ao buscar alertas:', erro);
-    return res.status(500).json({ erro: erro.message });
+    // Mensagem genérica no corpo: `erro.message` do driver do Neon pode
+    // trazer nome de tabela/coluna e detalhe de conexão, e nenhum
+    // consumidor precisa disso (o front usa só o status HTTP). O erro
+    // real fica no console.error acima, nos logs do Vercel.
+    return res.status(500).json({ erro: 'Falha interna.' });
   }
 }

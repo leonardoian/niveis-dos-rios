@@ -5,6 +5,10 @@ on:
     - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
+# O job só precisa de rede de saída (Neon, feed, Open-Meteo, ANA, serviços de
+# push) — nada de ler ou escrever no próprio repositório.
+permissions: {}
+
 jobs:
   coletar:
     runs-on: ubuntu-latest
@@ -20,3 +24,19 @@ jobs:
       - run: node scripts/coletar-local.js
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Todas as opcionais abaixo precisam estar aqui: sem elas, esta
+          # fonte de agendamento roda uma coleta MENOR que a do cron-job.org
+          # (sem cross-check da ANA, sem alerta de chuva, sem push) e sem
+          # erro nenhum, já que cada feature vira no-op quando a variável
+          # falta — ver lib/ana.js e lib/push.js. Secret ausente chega como
+          # string vazia, que essas checagens já tratam como "não configurado".
+          ANA_IDENTIFICADOR: ${{ secrets.ANA_IDENTIFICADOR }}
+          ANA_SENHA: ${{ secrets.ANA_SENHA }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          # Limiares do alerta de chuva: não são segredo, então ficam em
+          # Settings → Secrets and variables → Actions → Variables. Vazio
+          # cai no default do código (40mm / 6h).
+          LIMIAR_CHUVA_6H_MM: ${{ vars.LIMIAR_CHUVA_6H_MM }}
+          JANELA_CHUVA_HORAS: ${{ vars.JANELA_CHUVA_HORAS }}
