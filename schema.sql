@@ -140,12 +140,11 @@ CREATE INDEX IF NOT EXISTS idx_estimativas_cota_avaliadas
     ON estimativas_cota (avaliado_em) WHERE avaliado_em IS NOT NULL;
 
 -- Inscrições de notificação push (Web Push API — ver lib/push.js). Uma
--- linha por navegador/dispositivo inscrito; sem coluna de "quais estações"
--- de propósito — quem se inscreve recebe alerta de todas as 14, mesmo
--- critério que já popula a tabela alertas (entrada em risco E volta ao
--- normal). endpoint é único porque o próprio navegador garante isso (é a
--- URL do serviço de push dele) — reinscrever o mesmo endpoint só atualiza,
--- nunca duplica.
+-- linha por navegador/dispositivo inscrito. `slugs` NULL = todas as
+-- estações (default); um array restringe às escolhidas. endpoint é único
+-- porque o próprio navegador garante isso (é a URL do serviço de push
+-- dele) — reinscrever o mesmo endpoint atualiza a preferência, nunca
+-- duplica.
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id          BIGSERIAL PRIMARY KEY,
     endpoint    TEXT NOT NULL UNIQUE,
@@ -153,6 +152,14 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     auth        TEXT NOT NULL,
     criado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Idempotente: bancos que criaram a tabela antes desta coluna existir.
+-- NULL = todas as estações, que é o comportamento que a tabela sempre teve
+-- (e continua sendo o default de quem se inscreve sem escolher nada) — por
+-- isso NULL em vez de um array com as 14: "não escolheu" é diferente de
+-- "escolheu todas", e só o primeiro deve acompanhar automaticamente uma
+-- estação nova que entre no painel depois.
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS slugs TEXT[];
 
 -- Cross-check com a API oficial da ANA (ver lib/ana.js) — mesmo formato de
 -- leituras, propositalmente SEPARADA: a coluna `nivel` daqui nunca entra no

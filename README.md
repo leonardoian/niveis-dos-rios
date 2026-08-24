@@ -279,7 +279,7 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/divergencia?dias=30`          | diferença entre nivelguaiba e ANA por estação (mediana, oscilação, deriva) |
 | `GET /api/curva?dias=90`                | erro da previsão de nível contra o nível medido, por estação |
 | `GET /api/coletar`                      | força uma coleta (requer o header) — 502 se o feed de nível estiver fora, com o corpo dizendo o que as outras fontes conseguiram fazer |
-| `POST /api/push`                        | inscreve pra notificação push (`{endpoint, keys:{p256dh,auth}}`) |
+| `POST /api/push`                        | inscreve/atualiza a notificação push (`{endpoint, keys:{p256dh,auth}, slugs?}` — `slugs` ausente = todas) |
 | `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
 
 ## Notas
@@ -610,10 +610,16 @@ uma das 14 estações entra em risco (atenção/alerta/alagado) ou volta ao
 normal, mesmo critério que já popula o histórico de alertas (`registrarAlertas()`
 em `lib/coletar.js`). Decisões de escopo (V1, deliberadas):
 
-- **Sem preferência por estação** — quem se inscreve recebe alerta de todas.
-  Se o grupo de uso crescer e isso virar ruído, dá pra evoluir pra uma tela
-  de preferências depois (exigiria uma coluna nova em `push_subscriptions`).
+- **Preferência por estação** (botão "⚙️ Estações", que só aparece com a
+  notificação ligada): coluna `slugs` em `push_subscriptions`, `NULL` =
+  todas. `NULL` em vez de um array com as 14 de propósito — "não escolheu" é
+  diferente de "escolheu todas", e só o primeiro deve passar a receber
+  automaticamente de uma estação nova que entre no painel depois. Marcar
+  todas, ou nenhuma, normaliza pra `NULL` nos dois lados (front e API), pra
+  "todas" ter uma representação só no banco.
 - **Notifica entrada em risco E volta ao normal** — não só "piorou".
+- **Vale pros três tipos** (🌊 nível, 🌧️ chuva, 📈 subida): o filtro é por
+  estação, não por tipo de aviso.
 
 Implementação é Web Push nativa do navegador (Service Worker +
 `PushManager` + VAPID) — **sem** Telegram, Firebase ou qualquer conta em
@@ -629,6 +635,23 @@ simplesmente não faz nada — não derruba a coleta.
 Uma inscrição expirada (o navegador revogou, cache limpo etc.) é detectada
 pelo próprio envio (`web-push` retorna 404/410) e apagada automaticamente
 de `push_subscriptions` — sem faxina manual.
+
+Três detalhes da preferência por estação que são decisões:
+
+- **O `INSERT` virou `DO UPDATE`.** Reinscrever o mesmo navegador é como a
+  pessoa *muda* a preferência — com o `DO NOTHING` de antes, a troca era
+  silenciosamente ignorada e ela seguia recebendo o que tinha antes.
+- **Slug desconhecido é recusado com 400**, não gravado. Uma preferência com
+  slug digitado errado viraria uma inscrição que nunca recebe nada, e
+  silêncio é indistinguível de "não houve alerta".
+- **Alerta sem `slug` vai pra todo mundo** (`alertaInteressa` em
+  `lib/push.js`): formato antigo ou origem que não identifica a estação.
+  Melhor notificar demais que engolir um aviso de cheia por detalhe de
+  formato.
+
+Não existe `GET /api/push`, de propósito: exporia a preferência de qualquer
+endpoint a quem soubesse a URL dele. O modal usa `localStorage` só pra não
+abrir vazio — a fonte da verdade é o banco, que é quem o envio consulta.
 
 ### Cross-check com a API oficial da ANA
 

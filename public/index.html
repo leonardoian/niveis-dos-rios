@@ -64,6 +64,7 @@
       <button id="compararToggle" type="button" title="Comparar várias estações no mesmo gráfico">📊 Comparar estações</button>
       <button id="ajudaToggle" type="button" title="O que significa cada ícone e cor">❓ Ajuda</button>
       <button id="notificacoesToggle" type="button" title="Avisa quando uma estação entra em risco ou volta ao normal">🔔 Ativar notificações</button>
+      <button id="notifPreferencias" type="button" title="Escolher de quais estações receber notificação" hidden>⚙️ Estações</button>
     </div>
     <div class="menu-overlay" id="menuOverlay" hidden></div>
   </div>
@@ -172,6 +173,31 @@
       <canvas id="graficoComparar"></canvas>
       <p class="modal-vazio" id="compararVazio" hidden></p>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalNotifOverlay" hidden>
+  <div class="modal modal-comparar" role="dialog" aria-modal="true" aria-labelledby="modalNotifTitulo">
+    <div class="modal-topo">
+      <div>
+        <div class="modal-cidade" id="modalNotifTitulo">Notificações por estação</div>
+        <div class="modal-rio">Nenhuma marcada = receber de todas</div>
+      </div>
+      <button class="modal-fechar" id="modalNotifFechar" aria-label="Fechar">✕</button>
+    </div>
+    <p class="modal-nota">
+      Vale pros três tipos de aviso: 🌊 mudança de status de nível, 🌧️ chuva acumulada
+      medida na estação e 📈 subida rápida. Marcar nenhuma é o mesmo que marcar todas —
+      e só quem não marcou nada passa a receber automaticamente de uma estação nova, se
+      o painel ganhar alguma.
+    </p>
+    <div class="comparar-lista" id="notifLista"></div>
+    <div class="modal-janelas">
+      <button id="notifTodas" type="button">Marcar todas</button>
+      <button id="notifNenhuma" type="button">Desmarcar todas</button>
+      <button id="notifSalvar" type="button" style="margin-left:auto;">Salvar</button>
+    </div>
+    <p class="modal-nota" id="notifStatus" hidden></p>
   </div>
 </div>
 
