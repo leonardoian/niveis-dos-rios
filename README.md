@@ -480,12 +480,37 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
     min.
   - Quando o prazo vence (`alvo_em` + tolerância — 20% do horizonte
     estimado, entre 1h e 12h), `avaliarEstimativasCota` confere se alguma
-    leitura real da estação cruzou o `alvo_nivel` dentro da janela
-    `[previsto_em, alvo_em + tolerância]`. Cruzou = "acertou" (com
-    `erro_horas` = diferença entre o cruzamento real e o horário previsto).
-    Não cruzou (seja porque ainda não tinha chegado lá, seja porque a
-    tendência reverteu antes) = "errou" — as duas situações contam igual,
-    porque na hora H a estimativa não teria ajudado quem confiasse nela.
+    leitura real da estação estava do outro lado do `alvo_nivel` dentro da
+    **janela de acerto** `[alvo_em − tolerância, alvo_em + tolerância]` — a
+    tolerância vale dos dois lados. Estava = "acertou"; não estava = "errou".
+    Três situações contam como erro, igual: ainda não tinha chegado lá; a
+    tendência reverteu antes; ou chegou cedo demais e já tinha ido embora
+    quando a hora prevista veio. Nas três, na hora H a estimativa não teria
+    ajudado quem confiasse nela.
+  - `erro_horas` mede o cruzamento **real** (o primeiro depois do cálculo,
+    não o primeiro dentro da janela) contra o horário previsto — negativo =
+    adiantado. Então um "acertou" pode vir com `erro_horas = −39`: o rio
+    chegou muito antes do estimado e ainda estava lá na hora prevista. O
+    resultado foi acertado, o ritmo não; medir só dentro da janela faria
+    todo acerto adiantado aparecer como exatamente `−tolerância`, escondendo
+    o tamanho do erro.
+  - **Correção posterior:** a janela de acerto era `[previsto_em, alvo_em +
+    tolerância]`, ou seja, sem limite adiantado nenhum — qualquer cruzamento
+    depois do cálculo contava. Uma estimativa de 40h cujo rio tocou o alvo 1h
+    depois e recuou era registrada como "acertou" com `erro_horas ≈ −39`,
+    inflando justamente a faixa "mais de 24h", que é onde a página existe pra
+    mostrar a extrapolação falhando. A `public/acerto.html` sempre descreveu
+    "±20% do horizonte" — era o código que não fazia isso. As linhas
+    avaliadas **antes** dessa correção mantêm o veredito antigo (o campo
+    `avaliado_em` não é recalculado), então a taxa das faixas longas deve
+    cair aos poucos, conforme as avaliações novas entram. Se quiser zerar de
+    uma vez: `UPDATE estimativas_cota SET avaliado_em = NULL, resultado =
+    NULL, erro_horas = NULL, nivel_real_no_alvo = NULL;` — a próxima coleta
+    reavalia tudo com o critério novo, desde que as `leituras` da época ainda
+    estejam no banco.
+  - O veredito em si é `avaliarEstimativa` em `lib/calculo.js` — pura, sem
+    I/O, coberta por `tests/calculo.test.js`. `avaliarEstimativasCota` em
+    `lib/coletar.js` só busca as leituras e grava o resultado.
   - `/api/acerto` agrupa por antecedência (até 6h / 6–24h / mais de 24h) —
     a expectativa razoável é a taxa cair conforme o horizonte cresce, já
     que a extrapolação usa só as duas últimas leituras (bem sensível a
