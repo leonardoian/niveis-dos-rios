@@ -173,6 +173,33 @@ ALTER TABLE leituras_ana ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
 CREATE INDEX IF NOT EXISTS idx_leituras_ana_slug_data
     ON leituras_ana (slug, medido_em DESC);
 
+-- Uma linha por rodada de coleta — o histórico de saúde das fontes, que o
+-- `frescor` do painel não dá: ele diz se o dado está velho AGORA, não se
+-- isso é um soluço ou o terceiro do dia. Alimenta GET /api/saude e a página
+-- public/fontes.html.
+--
+-- feed_ok separa "o feed respondeu" de "o feed respondeu e não tinha
+-- novidade" (leituras_inseridas = 0 é normal: a coleta roda a cada 15 min e
+-- nem toda estação atualiza nesse ritmo). ana_ok é NULL quando as
+-- credenciais da ANA não estão configuradas — feature opcional, ausência
+-- não é falha.
+CREATE TABLE IF NOT EXISTS coletas (
+    id                     BIGSERIAL PRIMARY KEY,
+    iniciada_em            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    duracao_ms             INT,
+    feed_ok                BOOLEAN NOT NULL,
+    erro_feed              TEXT,
+    ana_ok                 BOOLEAN,
+    leituras_recebidas     INT NOT NULL DEFAULT 0,
+    leituras_inseridas     INT NOT NULL DEFAULT 0,
+    leituras_ana_recebidas INT NOT NULL DEFAULT 0,
+    leituras_ana_inseridas INT NOT NULL DEFAULT 0,
+    previsoes_atualizadas  INT NOT NULL DEFAULT 0,
+    alertas_criados        INT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_coletas_data ON coletas (iniciada_em DESC);
+
 -- ============================================================
 -- Carga inicial das 14 estações (cotas conforme sua planilha)
 -- Coordenadas: sede do município (fonte: Wikipédia), usadas só para

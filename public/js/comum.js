@@ -1,4 +1,5 @@
-// Utilidades compartilhadas por index.html, bacia.html e acerto.html.
+// Utilidades compartilhadas por index.html, bacia.html, acerto.html e
+// fontes.html.
 
 function hora(iso) {
   if (!iso) return '—';

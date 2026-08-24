@@ -28,6 +28,9 @@ estático (`/public`) + Neon Postgres. Não é sistema oficial de alerta.
 - **Notificações push** quando uma estação entra em risco ou volta ao
   normal — Web Push nativa do navegador, sem Telegram/Firebase.
 - **Radar de chuva** opcional no mapa da bacia (RainViewer).
+- **Página de confiança nas fontes** — uptime da coleta e comparação entre as
+  duas fontes de nível (nivelguaiba × ANA oficial), pra saber onde as réguas
+  concordam e onde divergem.
 
 ## Índice
 
@@ -48,6 +51,8 @@ api/historico.js                      série temporal de uma estação
 api/alertas.js                        últimos alertas (mudança de status), com nome da cidade
 api/acerto.js                         acerto da estimativa de cota, por antecedência (ver Notas)
 api/push.js                           inscrição/cancelamento de notificação push (POST/DELETE)
+api/saude.js                          histórico de saúde da coleta (uptime por fonte, lacunas)
+api/divergencia.js                    comparação nivelguaiba × ANA, por estação
 lib/db.js                             conexão com o Neon
 lib/feed.js                           leitura e parse do feed JSON
 lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão + estimativas + push)
@@ -61,16 +66,19 @@ tests/                                testes automatizados (node --test, sem dep
 public/index.html                     painel (estrutura HTML só; CSS/JS em css/ e js/)
 public/bacia.html                     mapa da bacia (Leaflet) + hierarquia dos rios
 public/acerto.html                    acerto da estimativa de cota, por antecedência
+public/fontes.html                    saúde da coleta + divergência entre as duas fontes de nível
 public/css/tema.css                   variáveis de cor (claro/escuro) — as 3 páginas carregam
 public/css/base.css                   reset + estilos base (body, button, .rodape-fontes...) — as 3 páginas carregam
 public/css/painel.css                 estilos só de index.html
 public/css/bacia.css                  estilos só de bacia.html
 public/css/acerto.css                 estilos só de acerto.html
+public/css/fontes.css                 estilos só de fontes.html
 public/js/tema.js                     toggle de tema claro/escuro — as 3 páginas carregam
 public/js/comum.js                    hora(), ROTULOS, CORES, CONDICOES/condicaoTexto — as 3 páginas carregam
 public/js/painel.js                   lógica só de index.html
 public/js/bacia.js                    lógica só de bacia.html (inclui o toggle do radar de chuva)
 public/js/acerto.js                   lógica só de acerto.html
+public/js/fontes.js                   lógica só de fontes.html
 public/js/push.js                     inscrever/cancelar notificação push — só index.html
 public/sw.js                          service worker (só recebe push — sem cache/offline)
 public/manifest.json                  PWA — nome, cores, ícones (pra "adicionar à tela inicial")
@@ -257,6 +265,8 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação (inclui `chuvaAna`, chuva medida ANA na mesma janela) |
 | `GET /api/alertas`                      | últimos 30 alertas — nível (`tipo='nivel'`) e chuva acumulada (`tipo='chuva'`) misturados por data |
 | `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
+| `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha |
+| `GET /api/divergencia?dias=30`          | diferença entre nivelguaiba e ANA por estação (mediana, oscilação, deriva) |
 | `GET /api/coletar`                      | força uma coleta (requer o header) — 502 se o feed de nível estiver fora, com o corpo dizendo o que as outras fontes conseguiram fazer |
 | `POST /api/push`                        | inscreve pra notificação push (`{endpoint, keys:{p256dh,auth}}`) |
 | `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
@@ -611,16 +621,18 @@ de `push_subscriptions` — sem faxina manual.
 
 ### Cross-check com a API oficial da ANA
 
-`lib/ana.js` busca, a cada coleta, a leitura mais recente de 12 das 14
-estações direto da API oficial da ANA (`hidrowebservice`,
-`HidroinfoanaSerieTelemetricaAdotada`) e grava numa tabela separada,
+`lib/ana.js` busca, a cada coleta, **as 48h inteiras de telemetria**
+(`DIAS_2`) de 12 das 14 estações direto da API oficial da ANA
+(`hidrowebservice`, `HidroinfoanaSerieTelemetricaAdotada`) e grava numa
+tabela separada,
 `leituras_ana` — que **não substitui** a fonte principal
 (`nivelguaiba.com.br`, via `lib/feed.js`).
 
 Duas colunas, dois papéis, e vale não confundir: o **`nivel`** da ANA é
 puro cross-check — nunca entra no cálculo de nível/status/alerta, é só um
 registro pra comparar as duas fontes ao longo do tempo antes de considerar
-qualquer mudança maior. Já a **`chuva_mm`** *é* lida pelo painel (ver
+qualquer mudança maior — comparação que agora existe de verdade, em
+`/fontes` (ver seção própria). Já a **`chuva_mm`** *é* lida pelo painel (ver
 "Chuva medida" logo abaixo): alimenta `chuvaMedidaAnaMm`/`frescorAna` em
 `/api/painel`, `chuvaAna` em `/api/historico` e o alerta `tipo='chuva'` —
 sempre rotulada "(ANA)" e em linha separada da previsão.
@@ -650,6 +662,26 @@ sempre rotulada "(ANA)" e em linha separada da previsão.
   cada 15 min é barato.
 - Opcional de propósito: sem `ANA_IDENTIFICADOR`/`ANA_SENHA` configuradas,
   `buscarNiveisAna()` retorna vazio sem erro — não derruba a coleta.
+
+**Por que guardar as 48h e não só a leitura mais recente:** a API devolve
+~192 registros por estação no mesmo payload, e o código antigo ficava com
+**um** e descartava os outros ~191 — dado já entregue, de graça. Guardar
+tudo (o `INSERT` já era idempotente por `(slug, medido_em)`) dá três coisas:
+série da ANA na resolução real da estação em vez de amostrada pela nossa
+cadência de coleta; **retroativo de 48h que tapa buraco quando o feed do
+nivelguaiba fica fora** — antes essas horas sumiam pra sempre; e chuva
+acumulada calculada sobre as leituras de verdade da janela, não sobre uma
+amostra delas.
+
+Isso muda o custo da gravação: ~2300 linhas por rodada em vez de 12. Por
+isso `registrarLeiturasAna` faz **bulk insert via `UNNEST`**, um comando só,
+em vez de um `INSERT` por leitura — o driver da Neon é HTTP, cada `sql` é
+uma requisição, e em loop isso seria ~2300 round-trips a cada 15 min. Da
+segunda rodada em diante quase tudo já está lá e o `ON CONFLICT DO NOTHING`
+não insere nada. O bulk também exige filtrar slugs desconhecidos antes de
+mandar: `leituras_ana` tem FK pra `estacoes`, e um comando único falha
+inteiro se **uma** linha violar — diferente do loop, onde uma linha ruim
+derrubava só a si mesma.
 
 Além do nível, a mesma resposta da ANA já traz `Chuva_Adotada` — chuva
 acumulada **medida** na própria estação, diferente da previsão do
@@ -688,6 +720,64 @@ acima):
   nesta fase — não substitui o número principal nem alimenta
   status/alerta (ver ressalva de datum acima); serve só pra notar quando
   uma fonte ficou defasada em relação à outra.
+
+### Página de confiança nas fontes (`/fontes`)
+
+Responde duas perguntas que o painel não respondia, e que são bem diferentes
+uma da outra:
+
+**1. A coleta está rodando?** (`GET /api/saude`, tabela `coletas`) — cada
+rodada de `executarColeta()` grava uma linha com feed OK/erro, se a ANA
+respondeu, quantas leituras entraram, quantos alertas saíram e quanto
+demorou. O painel já mostrava `frescor`, mas frescor diz se o dado está
+velho **agora**; isso aqui diz se aquilo é um soluço ou o terceiro do dia —
+e distingue "o feed falhou" de "o feed respondeu e não tinha novidade", que
+o painel não tem como separar (`leituras_inseridas = 0` é rotina, o feed não
+atualiza toda estação a cada 15 min).
+
+Além do uptime por fonte em 24h/7d, mostra a **maior lacuna entre duas
+rodadas** na janela — é o número que revela "ficou 3h sem coletar", que
+nenhuma média mostra. Só é sinalizada como anormal acima de 3× o intervalo
+agendado, porque o GitHub Actions atrasa alguns minutos rotineiramente.
+`ana_ok` é `NULL` quando as credenciais da ANA não estão configuradas:
+ausência de feature opcional não é falha, e some da conta em vez de puxar a
+taxa pra baixo.
+
+**2. As duas fontes de nível concordam?** (`GET /api/divergencia`) — essa é a
+razão de `leituras_ana` existir. O schema sempre disse que a tabela servia
+"pra comparar as duas fontes ao longo do tempo antes de considerar qualquer
+mudança maior", mas **nada lia a coluna `nivel`**: ela era gravada a cada 15
+min e nunca olhada. Agora vira informação.
+
+O emparelhamento é por **bucket de hora**, não por "leitura mais próxima":
+as duas fontes não medem no mesmo instante nem na mesma cadência, e casar a
+mais próxima criaria pares com defasagem variável — num rio subindo rápido,
+20 min de defasagem viram centímetros que não são divergência de régua, são
+desencontro de horário. A média horária de cada fonte tira esse ruído.
+
+Três números por estação, e o veredito sai da combinação deles:
+
+| Veredito | O que significa |
+| --- | --- |
+| **concordam** | diferença mediana ≤ 5 cm — as duas réguas leem o mesmo |
+| **offset estável** | diferença grande mas constante: é datum diferente, não erro (o caso do Gasômetro, ver nota em `schema.sql`) |
+| **oscila** | o miolo p10–p90 passa de 15 cm: não é offset de régua, é discordância real |
+| **derivando** | a mediana da metade recente difere da antiga em ≥ 10 cm — alguma coisa mexeu numa das réguas no meio do caminho |
+| **dado insuficiente** | menos de 24h pareadas |
+
+Os limiares ficam no topo de `public/js/fontes.js`, não escondidos no meio
+da lógica — são escolha nossa de leitura, não algo que veio do dado, e
+mudar um deles não deveria exigir caçar onde está.
+
+Isso responde direto à ressalva documentada estação por estação em
+`ESTACOES_ANA` ("escolhemos a rede SGB-CPRM, mas só validamos a régua a
+fundo pra Porto Alegre"). As cores dos vereditos são deliberadamente
+**fora** da paleta de status do painel: aqui é qualidade de dado, não risco
+de enchente, e confundir as duas leituras seria pior que não ter cor.
+
+As 2 estações sem código ANA (`lajeado`, `rocasales`) aparecem numa nota
+explícita de "sem comparação **por decisão**, não por falha" — pra a página
+não parecer que perdeu dado.
 
 ### Qualidade e transparência dos dados
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ESTACOES_ANA, codigosParaLotes, converterCotaParaMetros, converterChuvaMm, converterDataHoraAna, calcularChuvaAcumulada } from '../lib/ana.js';
+import { ESTACOES_ANA, codigosParaLotes, converterCotaParaMetros, converterChuvaMm, converterDataHoraAna, calcularChuvaAcumulada, deduplicarLeituras } from '../lib/ana.js';
 
 test('ESTACOES_ANA: tem exatamente 12 estações mapeadas', () => {
   assert.equal(Object.keys(ESTACOES_ANA).length, 12);
@@ -121,4 +121,36 @@ test('calcularChuvaAcumulada: ordena internamente antes de somar (entrada fora d
     { chuvaMm: 5, medidoEm: '2026-07-30T13:00:00Z' },
   ];
   assert.equal(calcularChuvaAcumulada(leituras), 9);
+});
+
+// ---- deduplicarLeituras ----
+// Guardamos as 48h inteiras que a API devolve, então a mesma (estação,
+// instante) pode aparecer repetida entre lotes — e vai tudo num bulk insert.
+
+test('deduplicarLeituras: mesma estação+instante vira uma linha só', () => {
+  const r = deduplicarLeituras([
+    { slug: 'mucum', nivel: 10.0, medidoEm: '2026-08-01T00:00:00.000Z', chuvaMm: 1 },
+    { slug: 'mucum', nivel: 10.0, medidoEm: '2026-08-01T00:00:00.000Z', chuvaMm: 1 },
+  ]);
+  assert.equal(r.length, 1);
+});
+
+test('deduplicarLeituras: mesma estação em instantes diferentes são linhas distintas', () => {
+  const r = deduplicarLeituras([
+    { slug: 'mucum', nivel: 10.0, medidoEm: '2026-08-01T00:00:00.000Z' },
+    { slug: 'mucum', nivel: 10.2, medidoEm: '2026-08-01T00:15:00.000Z' },
+  ]);
+  assert.equal(r.length, 2);
+});
+
+test('deduplicarLeituras: estações diferentes no mesmo instante não colidem', () => {
+  const r = deduplicarLeituras([
+    { slug: 'mucum', nivel: 10.0, medidoEm: '2026-08-01T00:00:00.000Z' },
+    { slug: 'feliz', nivel: 3.0, medidoEm: '2026-08-01T00:00:00.000Z' },
+  ]);
+  assert.equal(r.length, 2);
+});
+
+test('deduplicarLeituras: lista vazia continua vazia', () => {
+  assert.deepEqual(deduplicarLeituras([]), []);
 });

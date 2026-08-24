@@ -1,5 +1,5 @@
-// Tema claro/escuro — compartilhado por index.html, bacia.html e
-// acerto.html. Sem preferência salva, o CSS (@media prefers-color-scheme)
+// Tema claro/escuro — compartilhado por index.html, bacia.html,
+// acerto.html e fontes.html. Sem preferência salva, o CSS (@media prefers-color-scheme)
 // decide sozinho; só fixamos data-tema quando o usuário clica no botão, pra
 // poder sobrepor a preferência do sistema. Espera um <button id="temaToggle">
 // já presente no HTML antes desse script rodar.
