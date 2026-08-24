@@ -539,6 +539,21 @@ async function carregarAlertas() {
     }
 
     el.innerHTML = resposta.alertas.map((a) => {
+      if (a.tipo === 'subida') {
+        const rapida = a.status === 'subida_rapida';
+        const rotulo = rapida ? 'subida rápida' : 'ritmo normalizou';
+        const cor = rapida ? CORES.alerta : CORES.normal;
+        const cmh = a.velocidadeCmH === null ? '—' : a.velocidadeCmH.toFixed(0);
+        return `
+      <div class="alerta-item">
+        <span>${a.cidade}/${a.uf} —
+          <b style="color:${cor}">📈 ${rotulo}</b>
+          (${cmh} cm/h, ${a.rio})</span>
+        <span class="alerta-hora">${hora(a.criadoEm)}</span>
+      </div>
+    `;
+      }
+
       if (a.tipo === 'chuva') {
         const alta = a.status === 'chuva_alerta';
         const rotulo = alta ? 'chuva acumulada alta' : 'chuva acumulada normalizou';

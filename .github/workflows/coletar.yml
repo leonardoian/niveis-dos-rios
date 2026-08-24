@@ -40,3 +40,5 @@ jobs:
           # cai no default do código (40mm / 6h).
           LIMIAR_CHUVA_6H_MM: ${{ vars.LIMIAR_CHUVA_6H_MM }}
           JANELA_CHUVA_HORAS: ${{ vars.JANELA_CHUVA_HORAS }}
+          LIMIAR_SUBIDA_CM_H: ${{ vars.LIMIAR_SUBIDA_CM_H }}
+          JANELA_SUBIDA_HORAS: ${{ vars.JANELA_SUBIDA_HORAS }}

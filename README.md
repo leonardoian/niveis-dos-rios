@@ -27,6 +27,8 @@ estático (`/public`) + Neon Postgres. Não é sistema oficial de alerta.
   feed ou a previsão pararam de responder.
 - **Notificações push** quando uma estação entra em risco ou volta ao
   normal — Web Push nativa do navegador, sem Telegram/Firebase.
+- **Alerta de subida rápida** — avisa por ritmo (cm/h sustentados), não só
+  quando um patamar de cota já foi cruzado.
 - **Radar de chuva** opcional no mapa da bacia (RainViewer).
 - **Página de confiança nas fontes** — uptime da coleta e comparação entre as
   duas fontes de nível (nivelguaiba × ANA oficial), pra saber onde as réguas
@@ -122,6 +124,8 @@ Em Settings → Environment Variables, adicione:
 | `ANA_SENHA`         | opcional — senha da API da ANA, **nunca** commitar no repo |
 | `LIMIAR_CHUVA_6H_MM` | opcional, default `40` — mm acumulados na janela que disparam o alerta de chuva (ver abaixo) |
 | `JANELA_CHUVA_HORAS` | opcional, default `6` — tamanho da janela usada nesse alerta |
+| `LIMIAR_SUBIDA_CM_H` | opcional, default `15` — cm/h sustentados que disparam o alerta de subida rápida |
+| `JANELA_SUBIDA_HORAS` | opcional, default `3` — janela usada pra medir esse ritmo |
 
 Gere o `CRON_SECRET` com: `openssl rand -hex 32`
 
@@ -720,6 +724,40 @@ acima):
   nesta fase — não substitui o número principal nem alimenta
   status/alerta (ver ressalva de datum acima); serve só pra notar quando
   uma fonte ficou defasada em relação à outra.
+
+### Alerta de subida rápida
+
+Terceiro eixo de alerta, independente dos outros dois. O alerta de nível
+reage a **patamar** (60/80/100% da cota) e o de chuva reage a **entrada de
+água**; este reage a **ritmo**.
+
+O motivo: um rio a 40% da cota subindo 20 cm/h sustentados é mais urgente
+que um parado a 85%. O primeiro chega na cota hoje; o segundo pode ficar
+onde está por uma semana. Sem isso, o sistema só avisava **depois** que o
+patamar tinha sido cruzado — que é tarde pra quem precisa tirar coisa do
+chão.
+
+Usa `calcularSubidaSustentada` (`lib/calculo.js`), que mede entre as pontas
+de uma janela de horas (`JANELA_SUBIDA_HORAS`, default 3h) — **não**
+`calcularVelocidade`, que usa as duas últimas leituras. Essa distinção é o
+ponto todo: o README já documentava que a velocidade instantânea "pode
+ficar zerada mesmo com uma tendência clara ao longo do dia (flutuação
+normal do instrumento entre duas leituras consecutivas)". Ruído tolerável
+num número exibido no card; inaceitável pra disparar notificação, porque
+alertaria por oscilação de instrumento e ficaria calado numa subida real e
+constante.
+
+Devolve `null` — e não alerta — quando a janela tem cobertura menor que
+metade do pedido (estação nova, ou buraco de coleta): melhor não afirmar
+ritmo do que dividir uma diferença real por um intervalo que não
+representa a janela.
+
+Grava em `alertas` com `tipo='subida'` e `velocidade_cm_h`, seguindo
+exatamente o mesmo dedup por transição de status dos outros dois tipos —
+só notifica quando o status **muda**, não a cada rodada enquanto o rio
+continua subindo. O push usa emoji próprio (`📈 <cidade>` / "subindo X cm/h
+nas últimas Yh"): na tela de notificação do celular o título é quase tudo
+que se lê, e 🌊/🌧️/📈 já dizem qual dos três eixos disparou antes de abrir.
 
 ### Página de confiança nas fontes (`/fontes`)
 

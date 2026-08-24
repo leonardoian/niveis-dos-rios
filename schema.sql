@@ -48,7 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_leituras_slug_data
 CREATE TABLE IF NOT EXISTS alertas (
     id           BIGSERIAL PRIMARY KEY,
     slug         TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
-    status       TEXT NOT NULL,                 -- normal | atencao | alerta | alagado | chuva_alerta | chuva_normal
+    status       TEXT NOT NULL,                 -- normal | atencao | alerta | alagado | chuva_alerta | chuva_normal | subida_rapida | subida_normal
     nivel        NUMERIC(7,2),                  -- NULL nos alertas de chuva (ver tipo)
     criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -64,6 +64,9 @@ CREATE INDEX IF NOT EXISTS idx_alertas_slug_data
 ALTER TABLE alertas ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'nivel';
 ALTER TABLE alertas ALTER COLUMN nivel DROP NOT NULL;
 ALTER TABLE alertas ADD COLUMN IF NOT EXISTS chuva_mm_acumulada NUMERIC(6,2);
+-- Velocidade sustentada que disparou um alerta tipo='subida' (NULL nos
+-- outros tipos) — ver registrarAlertasSubida em lib/coletar.js.
+ALTER TABLE alertas ADD COLUMN IF NOT EXISTS velocidade_cm_h NUMERIC(8,2);
 
 CREATE INDEX IF NOT EXISTS idx_alertas_slug_tipo_data
     ON alertas (slug, tipo, criado_em DESC);
