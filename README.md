@@ -114,6 +114,14 @@ Se o banco já existia antes de `lat`/`lon`/`previsoes` entrarem no schema, roda
 NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `ON CONFLICT DO UPDATE`), então
 completa o que faltar sem duplicar nem apagar nada que já está lá.
 
+> **Rode o `schema.sql` de novo sempre que subir código que traga tabela ou
+> coluna nova**, de preferência *antes* do deploy. Já aconteceu de o
+> contrário derrubar o painel inteiro com HTTP 500: faltava `curvas_nivel`,
+> tabela de uma feature experimental, e o `/api/painel` morria junto — o
+> nível dos 14 rios sumia da tela por causa de um enfeite. Hoje as camadas
+> opcionais do painel degradam sozinhas (ver "Camadas opcionais do painel"
+> nas Notas), mas a migração continua sendo o passo certo.
+
 ### 2. Variáveis de ambiente no Vercel
 
 Em Settings → Environment Variables, adicione:
@@ -754,6 +762,29 @@ acima):
   nesta fase — não substitui o número principal nem alimenta
   status/alerta (ver ressalva de datum acima); serve só pra notar quando
   uma fonte ficou defasada em relação à outra.
+
+### Camadas opcionais do painel
+
+`/api/painel` separa o que é **núcleo** do que é **enriquecimento**. Núcleo:
+nível, cota, status, velocidade, série recente. Enriquecimento: previsão,
+curva vazão→nível, chuva medida da ANA, frescor por fonte.
+
+Só o núcleo é fatal. Cada camada de enriquecimento passa por um helper
+`opcional()` que captura a falha, loga qual camada caiu e segue com vazio.
+
+Isso veio de um incidente real: o código novo subiu antes do `schema.sql`, e
+o painel inteiro respondeu 500 porque faltava `curvas_nivel` — a tabela de
+uma feature *experimental*. Num monitor de cheia isso é o pior resultado
+possível: o dado crítico sumiu da tela por causa de um enfeite que nem
+estava pronto pra ser usado.
+
+O critério agora é explícito: **o nível dos rios tem que aparecer mesmo com
+todo o resto quebrado.** Se a previsão, a curva ou a ANA falharem — por
+tabela ausente, coluna nova, credencial faltando ou API fora — o card
+continua mostrando nível, cota e status, e o log diz exatamente o que caiu.
+
+A consulta principal continua fatal de propósito: sem ela não existe painel
+nenhum pra degradar, e mascarar isso com um 200 vazio seria pior que o 500.
 
 ### Volume de dados: rollup horário e retenção
 

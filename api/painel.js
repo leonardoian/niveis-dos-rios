@@ -4,6 +4,29 @@ import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h }
 // Retorna o estado atual de todas as estações, no formato que o painel consome.
 // A velocidade (cm/h) é calculada aqui a partir das duas últimas leituras —
 // o feed não fornece esse dado.
+
+// Enriquecimento que NÃO pode derrubar o painel. O núcleo aqui é nível +
+// cota + status; chuva da ANA, previsão e curva vazão→nível são camadas em
+// cima disso, cada uma dependendo de tabela ou coluna que pode não existir
+// (feature opcional, ou schema.sql ainda não rodado depois de um deploy).
+//
+// Isso é lição de um incidente real: subir o código novo antes da migração
+// derrubou o painel INTEIRO com 500 — o nível dos 14 rios sumiu da tela
+// porque faltava `curvas_nivel`, tabela de uma feature experimental. Num
+// monitor de cheia isso é inaceitável: a camada crítica tem que aparecer
+// mesmo com todo o resto quebrado.
+//
+// Só o que é opcional passa por aqui. A consulta principal continua fatal:
+// sem ela não há painel nenhum pra degradar.
+async function opcional(promessa, vazio, nome) {
+  try {
+    return await promessa;
+  } catch (erro) {
+    console.error(`Painel: camada opcional "${nome}" indisponível (segue sem ela):`, erro.message);
+    return vazio;
+  }
+}
+
 export default async function handler(req, res) {
   try {
     const linhas = await sql`
@@ -85,13 +108,13 @@ export default async function handler(req, res) {
 
     // Previsão de vazão (m³/s, dado à parte do nível — ver lib/previsao.js) e
     // clima dos próximos dias.
-    const previsaoBruta = await sql`
+    const previsaoBruta = await opcional(sql`
       SELECT slug, dia, vazao_m3s, temp_max, temp_min, chuva_mm, condicao_codigo, chance_chuva_pct, nivel_estimado_m
       FROM previsoes
       WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
         AND dia >= CURRENT_DATE
       ORDER BY slug, dia ASC
-    `;
+    `, [], 'previsões');
 
     const previsaoPorSlug = new Map();
     for (const p of previsaoBruta) {
@@ -115,9 +138,9 @@ export default async function handler(req, res) {
     // Qualidade da curva vazão→nível de cada estação (ver lib/curva.js). Vai
     // junto do número estimado de propósito: uma previsão de nível sem o
     // erro médio dela ao lado convida a confiar mais do que deveria.
-    const curvasBrutas = await sql`
+    const curvasBrutas = await opcional(sql`
       SELECT slug, n, r2, erro_medio_m, ajustada_em FROM curvas_nivel
-    `;
+    `, [], 'curva vazão→nível');
     const curvaPorSlug = new Map(curvasBrutas.map((c) => [c.slug, {
       n: c.n,
       r2: c.r2 === null ? null : Number(c.r2),
@@ -125,13 +148,13 @@ export default async function handler(req, res) {
       ajustadaEm: c.ajustada_em,
     }]));
 
-    const chuvaAnaBruta = await sql`
+    const chuvaAnaBruta = await opcional(sql`
       SELECT DISTINCT ON (slug) slug, chuva_mm
       FROM leituras_ana
       WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
         AND chuva_mm IS NOT NULL
       ORDER BY slug, medido_em DESC
-    `;
+    `, [], 'chuva medida (ANA)');
     const chuvaAnaPorSlug = new Map(
       chuvaAnaBruta.map((r) => [r.slug, Number(r.chuva_mm)])
     );
@@ -142,12 +165,12 @@ export default async function handler(req, res) {
     // (pra pegar o último VALOR de chuva), reusá-la aqui mudaria de
     // significado — poderia mostrar um timestamp mais antigo sempre que a
     // leitura realmente mais recente tiver chuva_mm nulo.
-    const ultimaAnaBruta = await sql`
+    const ultimaAnaBruta = await opcional(sql`
       SELECT DISTINCT ON (slug) slug, medido_em
       FROM leituras_ana
       WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
       ORDER BY slug, medido_em DESC
-    `;
+    `, [], 'frescor da ANA');
     const ultimaAnaPorSlug = new Map(
       ultimaAnaBruta.map((r) => [r.slug, r.medido_em])
     );
@@ -210,12 +233,14 @@ export default async function handler(req, res) {
     // entre todas as estações — usado no rodapé pra mostrar a saúde dessa
     // fonte separada da fonte de nível. Throttle é de 6h (ver lib/coletar.js),
     // então "atrasado" aqui precisa de um limiar bem maior que o de frescor.
-    const [{ ultima_previsao: ultimaPrevisaoBruta }] = await sql`
+    // Mesma camada opcional das previsões acima — o fallback devolve uma
+    // linha com null pra destructuring não estourar num array vazio.
+    const [{ ultima_previsao: ultimaPrevisaoBruta }] = await opcional(sql`
       SELECT MAX(gerado_em) AS ultima_previsao
       FROM previsoes
       WHERE slug IN (SELECT slug FROM estacoes WHERE ativa = TRUE)
-    `;
-    const ultimaPrevisao = ultimaPrevisaoBruta === null ? null : new Date(ultimaPrevisaoBruta).toISOString();
+    `, [{ ultima_previsao: null }], 'saúde da previsão');
+    const ultimaPrevisao = ultimaPrevisaoBruta == null ? null : new Date(ultimaPrevisaoBruta).toISOString();
 
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     return res.status(200).json({
