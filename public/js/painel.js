@@ -539,6 +539,21 @@ async function carregarAlertas() {
     }
 
     el.innerHTML = resposta.alertas.map((a) => {
+      if (a.tipo === 'subida') {
+        const rapida = a.status === 'subida_rapida';
+        const rotulo = rapida ? 'subida rápida' : 'ritmo normalizou';
+        const cor = rapida ? CORES.alerta : CORES.normal;
+        const cmh = a.velocidadeCmH === null ? '—' : a.velocidadeCmH.toFixed(0);
+        return `
+      <div class="alerta-item">
+        <span>${a.cidade}/${a.uf} —
+          <b style="color:${cor}">📈 ${rotulo}</b>
+          (${cmh} cm/h, ${a.rio})</span>
+        <span class="alerta-hora">${hora(a.criadoEm)}</span>
+      </div>
+    `;
+      }
+
       if (a.tipo === 'chuva') {
         const alta = a.status === 'chuva_alerta';
         const rotulo = alta ? 'chuva acumulada alta' : 'chuva acumulada normalizou';
@@ -662,17 +677,41 @@ function renderizarTendenciaVazao(slug) {
     const dataFmt = new Date(diaSimples + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' });
     const chuva = p.chuvaMm === null || p.chuvaMm === undefined ? '—' : p.chuvaMm.toFixed(1) + 'mm';
 
+    // Nível estimado pela curva empírica da estação (ver lib/curva.js).
+    // Só aparece quando existe: a maioria das estações não vai ter curva
+    // confiável no começo, e é assim que tem que ser.
+    const estimado = p.nivelEstimadoM === null || p.nivelEstimadoM === undefined
+      ? ''
+      : `<span class="prev-dia-nivel">≈ ${p.nivelEstimadoM.toFixed(2)} m</span>`;
+
     return `<div class="prev-dia">
       <span class="prev-dia-data">${dataFmt}</span>
       <span class="prev-dia-seta ${classe}">${seta}</span>
       <span class="prev-dia-valor">${p.vazaoM3s.toFixed(1)} m³/s</span>
+      ${estimado}
       <span class="prev-dia-chuva">💧 ${chuva}</span>
     </div>`;
   }).join('');
 
+  // O rodapé da curva só aparece quando algum dia tem estimativa — e sempre
+  // com n, R² e erro médio junto. Mostrar "≈ 12,40 m" sem dizer que a curva
+  // erra ±0,45 m em média convidaria a confiar mais do que o número aguenta.
+  const c = estacao.curvaNivel;
+  const temEstimativa = pontos.some((p) => p.nivelEstimadoM !== null && p.nivelEstimadoM !== undefined);
+  const rodapeCurva = !temEstimativa || !c ? '' : `
+    <p class="prev-curva-nota">
+      <b>≈ m é experimental.</b> Nível estimado a partir da vazão do modelo por uma
+      curva ajustada com o histórico desta estação — <b>não</b> é curva-chave oficial.
+      Ajuste: ${c.n} dias pareados, R² ${c.r2 === null ? '—' : c.r2.toFixed(2)},
+      erro médio ${c.erroMedioM === null ? '—' : '±' + c.erroMedioM.toFixed(2) + ' m'}.
+      Dias sem "≈ m" são aqueles em que a vazão prevista caiu fora da faixa em que a
+      curva foi ajustada — extrapolar ali erraria feio.
+    </p>`;
+
   el.innerHTML = `
     <p class="prev-tendencia-titulo">Tendência de vazão prevista — modelo (Open-Meteo/GloFAS), não é nível em metros</p>
     <div class="prev-dias">${dias}</div>
+    ${rodapeCurva}
   `;
 }
 
@@ -743,6 +782,7 @@ function fecharHistorico() {
   document.getElementById('modalNota').hidden = true;
   document.getElementById('modalNota').textContent = '';
   document.getElementById('modalChuvaLegenda').hidden = true;
+  document.getElementById('modalResolucao').hidden = true;
   document.getElementById('prevClima').innerHTML = '';
   alternarAba('nivel');
 }

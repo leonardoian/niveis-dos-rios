@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h, calcularEtaCota, avaliarEstimativa } from '../lib/calculo.js';
+import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h, calcularEtaCota, avaliarEstimativa, calcularSubidaSustentada } from '../lib/calculo.js';
 
 test('classificar: abaixo de 60% da cota é normal', () => {
   assert.equal(classificar(5, 10), 'normal');
@@ -195,4 +195,54 @@ test('avaliarEstimativa: ordena internamente e aguenta lista vazia', () => {
 
   const vazia = avaliarEstimativa({ ...base, leituras: [] });
   assert.deepEqual(vazia, { resultado: 'errou', erroHoras: null, nivelRealNoAlvo: null });
+});
+
+// ---- calcularSubidaSustentada: base do alerta de subida rápida ----
+const H0 = Date.parse('2026-08-01T00:00:00Z');
+const leitura = (h, nivel) => ({ nivel, medidoEm: new Date(H0 + h * 3_600_000).toISOString() });
+
+test('calcularSubidaSustentada: subida constante de 60cm em 3h = 20 cm/h', () => {
+  assert.equal(calcularSubidaSustentada([leitura(0, 5.0), leitura(1.5, 5.3), leitura(3, 5.6)], 3), 20);
+});
+
+test('calcularSubidaSustentada: descida vira número negativo', () => {
+  assert.equal(calcularSubidaSustentada([leitura(0, 5.6), leitura(3, 5.0)], 3), -20);
+});
+
+test('calcularSubidaSustentada: usa as pontas da janela, não as duas últimas leituras', () => {
+  // Sobe 60cm ao longo das 3h, mas a ÚLTIMA dupla é plana — é exatamente o
+  // caso em que calcularVelocidade daria ~0 e não alertaria numa subida real.
+  const r = calcularSubidaSustentada([
+    leitura(0, 5.0), leitura(1, 5.3), leitura(2, 5.58), leitura(2.75, 5.6), leitura(3, 5.6),
+  ], 3);
+  assert.equal(r, 20);
+});
+
+test('calcularSubidaSustentada: oscilação de instrumento não vira subida', () => {
+  // Vai e volta: as pontas quase empatam, mesmo com ruído no meio.
+  const r = calcularSubidaSustentada([
+    leitura(0, 5.00), leitura(1, 5.12), leitura(2, 4.94), leitura(3, 5.01),
+  ], 3);
+  assert.ok(Math.abs(r) < 1, `esperava ~0 cm/h, veio ${r}`);
+});
+
+test('calcularSubidaSustentada: cobertura curta demais da janela retorna null', () => {
+  // 1h de leituras numa janela de 3h: pode ser estação nova ou buraco de
+  // coleta — não dá pra afirmar ritmo sustentado.
+  assert.equal(calcularSubidaSustentada([leitura(2, 5.0), leitura(3, 5.6)], 3), null);
+});
+
+test('calcularSubidaSustentada: exatamente metade da janela é aceito (limite)', () => {
+  assert.equal(calcularSubidaSustentada([leitura(1.5, 5.0), leitura(3, 5.3)], 3), 20);
+});
+
+test('calcularSubidaSustentada: menos de 2 leituras ou instante repetido retorna null', () => {
+  assert.equal(calcularSubidaSustentada([leitura(0, 5)], 3), null);
+  assert.equal(calcularSubidaSustentada([], 3), null);
+  assert.equal(calcularSubidaSustentada(null, 3), null);
+  assert.equal(calcularSubidaSustentada([leitura(3, 5.0), leitura(3, 5.6)], 3), null);
+});
+
+test('calcularSubidaSustentada: ordena internamente', () => {
+  assert.equal(calcularSubidaSustentada([leitura(3, 5.6), leitura(0, 5.0)], 3), 20);
 });

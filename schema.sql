@@ -48,7 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_leituras_slug_data
 CREATE TABLE IF NOT EXISTS alertas (
     id           BIGSERIAL PRIMARY KEY,
     slug         TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
-    status       TEXT NOT NULL,                 -- normal | atencao | alerta | alagado | chuva_alerta | chuva_normal
+    status       TEXT NOT NULL,                 -- normal | atencao | alerta | alagado | chuva_alerta | chuva_normal | subida_rapida | subida_normal
     nivel        NUMERIC(7,2),                  -- NULL nos alertas de chuva (ver tipo)
     criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -64,6 +64,9 @@ CREATE INDEX IF NOT EXISTS idx_alertas_slug_data
 ALTER TABLE alertas ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'nivel';
 ALTER TABLE alertas ALTER COLUMN nivel DROP NOT NULL;
 ALTER TABLE alertas ADD COLUMN IF NOT EXISTS chuva_mm_acumulada NUMERIC(6,2);
+-- Velocidade sustentada que disparou um alerta tipo='subida' (NULL nos
+-- outros tipos) — ver registrarAlertasSubida em lib/coletar.js.
+ALTER TABLE alertas ADD COLUMN IF NOT EXISTS velocidade_cm_h NUMERIC(8,2);
 
 CREATE INDEX IF NOT EXISTS idx_alertas_slug_tipo_data
     ON alertas (slug, tipo, criado_em DESC);
@@ -94,6 +97,11 @@ ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS temp_min NUMERIC(5,2);
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS condicao_codigo INT;
 ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS chance_chuva_pct SMALLINT;
+-- Nível estimado a partir da vazão prevista, pela curva empírica da estação
+-- (ver curvas_nivel e lib/curva.js). NULL quando a estação não tem curva
+-- confiável ou a vazão caiu fora da faixa ajustada — que é a maioria dos
+-- casos no começo, de propósito.
+ALTER TABLE previsoes ADD COLUMN IF NOT EXISTS nivel_estimado_m NUMERIC(7,2);
 
 CREATE INDEX IF NOT EXISTS idx_previsoes_slug_dia
     ON previsoes (slug, dia);
@@ -132,12 +140,11 @@ CREATE INDEX IF NOT EXISTS idx_estimativas_cota_avaliadas
     ON estimativas_cota (avaliado_em) WHERE avaliado_em IS NOT NULL;
 
 -- Inscrições de notificação push (Web Push API — ver lib/push.js). Uma
--- linha por navegador/dispositivo inscrito; sem coluna de "quais estações"
--- de propósito — quem se inscreve recebe alerta de todas as 14, mesmo
--- critério que já popula a tabela alertas (entrada em risco E volta ao
--- normal). endpoint é único porque o próprio navegador garante isso (é a
--- URL do serviço de push dele) — reinscrever o mesmo endpoint só atualiza,
--- nunca duplica.
+-- linha por navegador/dispositivo inscrito. `slugs` NULL = todas as
+-- estações (default); um array restringe às escolhidas. endpoint é único
+-- porque o próprio navegador garante isso (é a URL do serviço de push
+-- dele) — reinscrever o mesmo endpoint atualiza a preferência, nunca
+-- duplica.
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id          BIGSERIAL PRIMARY KEY,
     endpoint    TEXT NOT NULL UNIQUE,
@@ -145,6 +152,14 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     auth        TEXT NOT NULL,
     criado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Idempotente: bancos que criaram a tabela antes desta coluna existir.
+-- NULL = todas as estações, que é o comportamento que a tabela sempre teve
+-- (e continua sendo o default de quem se inscreve sem escolher nada) — por
+-- isso NULL em vez de um array com as 14: "não escolheu" é diferente de
+-- "escolheu todas", e só o primeiro deve acompanhar automaticamente uma
+-- estação nova que entre no painel depois.
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS slugs TEXT[];
 
 -- Cross-check com a API oficial da ANA (ver lib/ana.js) — mesmo formato de
 -- leituras, propositalmente SEPARADA: a coluna `nivel` daqui nunca entra no
@@ -172,6 +187,82 @@ ALTER TABLE leituras_ana ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
 
 CREATE INDEX IF NOT EXISTS idx_leituras_ana_slug_data
     ON leituras_ana (slug, medido_em DESC);
+
+-- Agregado horário de `leituras`, preenchido incrementalmente a cada coleta
+-- (ver atualizarRollup em lib/coletar.js).
+--
+-- Motivo: `leituras` cresce ~1.344 linhas/dia (14 estações × 96 coletas) —
+-- cerca de 490 mil/ano — e /api/painel faz window function sobre a tabela
+-- inteira. O rollup deixa as janelas longas do gráfico (30d, 90d) baratas
+-- sem precisar apagar nada, e é o que permite manter anos de histórico
+-- mesmo se um dia a retenção de dado bruto for ligada.
+--
+-- Guarda min/máx além da média de propósito: numa janela de 90 dias a média
+-- horária esconderia exatamente o pico de uma cheia, que é a informação que
+-- mais importa nessa escala de tempo.
+CREATE TABLE IF NOT EXISTS leituras_horarias (
+    slug        TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
+    hora        TIMESTAMPTZ NOT NULL,      -- date_trunc('hour', medido_em)
+    n           INT NOT NULL,
+    nivel_min   NUMERIC(7,2) NOT NULL,
+    nivel_max   NUMERIC(7,2) NOT NULL,
+    nivel_med   NUMERIC(7,2) NOT NULL,
+    PRIMARY KEY (slug, hora)
+);
+
+CREATE INDEX IF NOT EXISTS idx_leituras_horarias_slug_hora
+    ON leituras_horarias (slug, hora DESC);
+
+-- Curva empírica vazão → nível por estação (ver lib/curva.js), reajustada
+-- no máximo 1x/dia a partir do histórico pareado que já temos:
+-- previsoes.vazao_m3s (modelo) × média diária de leituras.nivel (medido).
+--
+-- NÃO é curva-chave: ajusta ao mesmo tempo a relação física da régua e o
+-- viés do GloFAS naquele ponto da grade. É impura fisicamente e útil
+-- preditivamente — e, diferente da vazão crua, produz um número que dá pra
+-- CONFERIR contra medição real depois, porque nível a gente mede.
+--
+-- Uma linha por estação (o slug é a PK): a curva é reajustada sobre a
+-- janela inteira a cada vez, não versionada. Guardar histórico de
+-- coeficiente não ajudaria a responder nada que a gente pergunte hoje.
+CREATE TABLE IF NOT EXISTS curvas_nivel (
+    slug            TEXT PRIMARY KEY REFERENCES estacoes(slug) ON DELETE CASCADE,
+    alfa            DOUBLE PRECISION NOT NULL,   -- ln(h) = alfa + beta·ln(Q)
+    beta            DOUBLE PRECISION NOT NULL,
+    n               INT NOT NULL,                -- pares usados no ajuste
+    r2              DOUBLE PRECISION,            -- no espaço log; NULL = indefinido
+    erro_medio_m    NUMERIC(7,3),                -- erro absoluto médio, em metros
+    vazao_min_m3s   DOUBLE PRECISION NOT NULL,   -- faixa observada: fora dela não
+    vazao_max_m3s   DOUBLE PRECISION NOT NULL,   -- extrapolamos (é onde erraria feio)
+    ajustada_em     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Uma linha por rodada de coleta — o histórico de saúde das fontes, que o
+-- `frescor` do painel não dá: ele diz se o dado está velho AGORA, não se
+-- isso é um soluço ou o terceiro do dia. Alimenta GET /api/saude e a página
+-- public/fontes.html.
+--
+-- feed_ok separa "o feed respondeu" de "o feed respondeu e não tinha
+-- novidade" (leituras_inseridas = 0 é normal: a coleta roda a cada 15 min e
+-- nem toda estação atualiza nesse ritmo). ana_ok é NULL quando as
+-- credenciais da ANA não estão configuradas — feature opcional, ausência
+-- não é falha.
+CREATE TABLE IF NOT EXISTS coletas (
+    id                     BIGSERIAL PRIMARY KEY,
+    iniciada_em            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    duracao_ms             INT,
+    feed_ok                BOOLEAN NOT NULL,
+    erro_feed              TEXT,
+    ana_ok                 BOOLEAN,
+    leituras_recebidas     INT NOT NULL DEFAULT 0,
+    leituras_inseridas     INT NOT NULL DEFAULT 0,
+    leituras_ana_recebidas INT NOT NULL DEFAULT 0,
+    leituras_ana_inseridas INT NOT NULL DEFAULT 0,
+    previsoes_atualizadas  INT NOT NULL DEFAULT 0,
+    alertas_criados        INT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_coletas_data ON coletas (iniciada_em DESC);
 
 -- ============================================================
 -- Carga inicial das 14 estações (cotas conforme sua planilha)

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { temVapidConfigurado, montarPayloadAlerta, ehInscricaoExpirada, endpointPermitido, chavesValidas } from '../lib/push.js';
+import { temVapidConfigurado, montarPayloadAlerta, ehInscricaoExpirada, endpointPermitido, chavesValidas, alertaInteressa } from '../lib/push.js';
 
 test('temVapidConfigurado: true quando as 3 variáveis estão presentes', () => {
   assert.equal(
@@ -122,4 +122,54 @@ test('chavesValidas: faltando, vazio, tipo errado ou grande demais falha', () =>
   assert.equal(chavesValidas({ p256dh: 'x', auth: '' }), false);
   assert.equal(chavesValidas({ p256dh: 'x', auth: 123 }), false);
   assert.equal(chavesValidas({ p256dh: 'a'.repeat(256), auth: 'x' }), false);
+});
+
+// ---- payload do alerta de subida ----
+
+test('montarPayloadAlerta: tipo subida, status subida_rapida', () => {
+  const p = JSON.parse(montarPayloadAlerta({
+    cidade: 'Muçum', status: 'subida_rapida', tipo: 'subida', velocidadeCmH: 22.4, janelaHoras: 3,
+  }));
+  assert.equal(p.title, '📈 Muçum');
+  assert.equal(p.body, 'subindo 22 cm/h nas últimas 3h');
+});
+
+test('montarPayloadAlerta: tipo subida, status subida_normal', () => {
+  const p = JSON.parse(montarPayloadAlerta({
+    cidade: 'Feliz', status: 'subida_normal', tipo: 'subida', velocidadeCmH: 3, janelaHoras: 3,
+  }));
+  assert.equal(p.title, '📈 Feliz');
+  assert.equal(p.body, 'ritmo de subida voltou ao normal');
+});
+
+test('montarPayloadAlerta: os três tipos usam emoji distinto no título', () => {
+  const titulo = (a) => JSON.parse(montarPayloadAlerta(a)).title.split(' ')[0];
+  assert.equal(titulo({ cidade: 'X', status: 'alerta' }), '🌊');
+  assert.equal(titulo({ cidade: 'X', status: 'chuva_alerta', tipo: 'chuva', chuvaMmAcumulada: 50, janelaHoras: 6 }), '🌧️');
+  assert.equal(titulo({ cidade: 'X', status: 'subida_rapida', tipo: 'subida', velocidadeCmH: 20, janelaHoras: 3 }), '📈');
+});
+
+// ---- filtro por estação ----
+
+test('alertaInteressa: slugs NULL/vazio = todas as estações (default histórico)', () => {
+  const a = { slug: 'mucum', cidade: 'Muçum', status: 'alerta' };
+  assert.equal(alertaInteressa(a, null), true);
+  assert.equal(alertaInteressa(a, undefined), true);
+  assert.equal(alertaInteressa(a, []), true);
+});
+
+test('alertaInteressa: lista restringe às escolhidas', () => {
+  assert.equal(alertaInteressa({ slug: 'mucum' }, ['mucum', 'feliz']), true);
+  assert.equal(alertaInteressa({ slug: 'taquara' }, ['mucum', 'feliz']), false);
+});
+
+test('alertaInteressa: alerta sem slug vai pra todo mundo', () => {
+  // Formato antigo ou origem que não identifica a estação: melhor notificar
+  // demais que engolir um aviso de cheia por detalhe de formato.
+  assert.equal(alertaInteressa({ cidade: 'Muçum', status: 'alerta' }, ['feliz']), true);
+});
+
+test('alertaInteressa: entrada não-array é tratada como "todas"', () => {
+  assert.equal(alertaInteressa({ slug: 'mucum' }, 'mucum'), true);
+  assert.equal(alertaInteressa({ slug: 'mucum' }, {}), true);
 });

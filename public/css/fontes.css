@@ -1,0 +1,62 @@
+/* Estilos exclusivos da página de confiança nas fontes (fontes.html).
+   Cores/reset/tema compartilhados ficam em tema.css e base.css, carregados
+   antes deste. */
+
+.wrap { max-width: 900px; margin: 0 auto; }
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+h2 { font-size: 14px; font-weight: 600; color: var(--txt2); margin: 28px 0 10px; }
+.aviso { background: var(--aviso-bg); border: 1px solid var(--aviso-border); color: var(--aviso-txt); padding: 12px 14px; border-radius: 8px; font-size: 13px; margin: 16px 0; }
+.nota { font-size: 12px; color: var(--txt3); margin: 8px 0 12px; line-height: 1.5; }
+
+.cartoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.cartao { background: var(--card); border: 1px solid var(--linha); border-radius: 10px; padding: 14px 16px; }
+@media (prefers-reduced-motion: no-preference) {
+  .cartao { transition: background-color .3s ease, border-color .3s ease; }
+}
+.cartao span { display: block; font-size: 12px; color: var(--txt2); }
+.cartao strong { display: block; font-size: 26px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.cartao small { display: block; font-size: 12px; color: var(--txt3); margin-top: 2px; }
+.cartao.ruim { border-color: #e24b4a; }
+.cartao.atencao { border-color: #ef9f27; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--linha); }
+th { color: var(--txt2); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+.tabela-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--linha); border-radius: 10px; }
+.vazio { text-align: center; color: var(--txt3); font-size: 13px; padding: 30px 0; }
+
+/* Vereditos da comparação entre as duas réguas. Deliberadamente FORA da
+   paleta de status do painel (verde/laranja/vermelho de nível de rio): isto
+   aqui é qualidade de dado, não risco de enchente, e confundir as duas
+   leituras seria pior que não ter cor nenhuma.
+
+   Mesmo padrão de tema.css: claro no :root, escuro repetido no @media
+   (pro default do sistema) e no [data-tema="escuro"] (pro botão 🌙). */
+:root {
+  --v-concordam-bg: #dfeaf5; --v-concordam-txt: #1c4a6e;
+  --v-constante-bg: #e6e2f2; --v-constante-txt: #453a6b;
+  --v-oscila-bg:    #f5e6da; --v-oscila-txt:    #7a4a1c;
+  --v-derivando-bg: #f2dede; --v-derivando-txt: #7a2c2c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --v-concordam-bg: #1c3348; --v-concordam-txt: #a8cbe6;
+    --v-constante-bg: #2c2740; --v-constante-txt: #c0b6e0;
+    --v-oscila-bg:    #40311f; --v-oscila-txt:    #e0b98d;
+    --v-derivando-bg: #402525; --v-derivando-txt: #e69a9a;
+  }
+}
+:root[data-tema="escuro"] {
+  --v-concordam-bg: #1c3348; --v-concordam-txt: #a8cbe6;
+  --v-constante-bg: #2c2740; --v-constante-txt: #c0b6e0;
+  --v-oscila-bg:    #40311f; --v-oscila-txt:    #e0b98d;
+  --v-derivando-bg: #402525; --v-derivando-txt: #e69a9a;
+}
+
+.veredito { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.veredito.concordam { background: var(--v-concordam-bg); color: var(--v-concordam-txt); }
+.veredito.constante { background: var(--v-constante-bg); color: var(--v-constante-txt); }
+.veredito.oscila    { background: var(--v-oscila-bg);    color: var(--v-oscila-txt); }
+.veredito.derivando { background: var(--v-derivando-bg); color: var(--v-derivando-txt); }
+.veredito.poucos    { background: var(--linha); color: var(--txt3); }

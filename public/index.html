@@ -55,12 +55,16 @@
       <a class="link-bacia" href="acerto.html">
         <button type="button" title="Quanto a estimativa de cota acerta, por antecedência">🎯 Acerto</button>
       </a>
+      <a class="link-bacia" href="fontes.html">
+        <button type="button" title="Saúde da coleta e comparação entre nivelguaiba e ANA">🔍 Fontes</button>
+      </a>
       <button id="temaToggle" type="button" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">🌙</button>
       <button id="apresentacaoToggle" type="button" title="Modo apresentação (tela cheia)">🖥 Apresentação</button>
       <button id="gerarPdf" type="button" title="Gerar PDF do banner com os níveis">🖨 Gerar PDF</button>
       <button id="compararToggle" type="button" title="Comparar várias estações no mesmo gráfico">📊 Comparar estações</button>
       <button id="ajudaToggle" type="button" title="O que significa cada ícone e cor">❓ Ajuda</button>
       <button id="notificacoesToggle" type="button" title="Avisa quando uma estação entra em risco ou volta ao normal">🔔 Ativar notificações</button>
+      <button id="notifPreferencias" type="button" title="Escolher de quais estações receber notificação" hidden>⚙️ Estações</button>
     </div>
     <div class="menu-overlay" id="menuOverlay" hidden></div>
   </div>
@@ -132,6 +136,7 @@
       <div class="modal-corpo">
         <canvas id="graficoHistorico"></canvas>
         <p class="modal-vazio" id="modalVazio" hidden></p>
+        <p class="modal-nota" id="modalResolucao" hidden></p>
       </div>
       <p class="modal-nota" id="modalChuvaLegenda" hidden>💧 Chuva medida acumulada reportada pela estação (ANA); pode reiniciar periodicamente, então quedas bruscas na barra não significam chuva negativa.</p>
     </div>
@@ -168,6 +173,31 @@
       <canvas id="graficoComparar"></canvas>
       <p class="modal-vazio" id="compararVazio" hidden></p>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalNotifOverlay" hidden>
+  <div class="modal modal-comparar" role="dialog" aria-modal="true" aria-labelledby="modalNotifTitulo">
+    <div class="modal-topo">
+      <div>
+        <div class="modal-cidade" id="modalNotifTitulo">Notificações por estação</div>
+        <div class="modal-rio">Nenhuma marcada = receber de todas</div>
+      </div>
+      <button class="modal-fechar" id="modalNotifFechar" aria-label="Fechar">✕</button>
+    </div>
+    <p class="modal-nota">
+      Vale pros três tipos de aviso: 🌊 mudança de status de nível, 🌧️ chuva acumulada
+      medida na estação e 📈 subida rápida. Marcar nenhuma é o mesmo que marcar todas —
+      e só quem não marcou nada passa a receber automaticamente de uma estação nova, se
+      o painel ganhar alguma.
+    </p>
+    <div class="comparar-lista" id="notifLista"></div>
+    <div class="modal-janelas">
+      <button id="notifTodas" type="button">Marcar todas</button>
+      <button id="notifNenhuma" type="button">Desmarcar todas</button>
+      <button id="notifSalvar" type="button" style="margin-left:auto;">Salvar</button>
+    </div>
+    <p class="modal-nota" id="notifStatus" hidden></p>
   </div>
 </div>
 

@@ -1,5 +1,5 @@
 /* Variáveis de cor (tema claro/escuro), compartilhadas por index.html,
-   bacia.html e acerto.html. Segue prefers-color-scheme por padrão; o
+   bacia.html, acerto.html e fontes.html. Segue prefers-color-scheme por padrão; o
    atributo data-tema (fixado por js/tema.js via botão 🌙/☀️) sobrepõe a
    preferência do sistema quando presente. */
 :root {

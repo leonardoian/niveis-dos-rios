@@ -27,7 +27,15 @@ estático (`/public`) + Neon Postgres. Não é sistema oficial de alerta.
   feed ou a previsão pararam de responder.
 - **Notificações push** quando uma estação entra em risco ou volta ao
   normal — Web Push nativa do navegador, sem Telegram/Firebase.
+- **Alerta de subida rápida** — avisa por ritmo (cm/h sustentados), não só
+  quando um patamar de cota já foi cruzado.
+- **Previsão de nível em metros** (experimental) — curva empírica ajustada
+  com o histórico da própria estação, que transforma a vazão do modelo num
+  número conferível, com o erro dela sempre ao lado.
 - **Radar de chuva** opcional no mapa da bacia (RainViewer).
+- **Página de confiança nas fontes** — uptime da coleta e comparação entre as
+  duas fontes de nível (nivelguaiba × ANA oficial), pra saber onde as réguas
+  concordam e onde divergem.
 
 ## Índice
 
@@ -48,6 +56,9 @@ api/historico.js                      série temporal de uma estação
 api/alertas.js                        últimos alertas (mudança de status), com nome da cidade
 api/acerto.js                         acerto da estimativa de cota, por antecedência (ver Notas)
 api/push.js                           inscrição/cancelamento de notificação push (POST/DELETE)
+api/saude.js                          histórico de saúde da coleta (uptime por fonte, lacunas)
+api/divergencia.js                    comparação nivelguaiba × ANA, por estação
+api/curva.js                          acerto da previsão de nível, medido contra o nível real
 lib/db.js                             conexão com o Neon
 lib/feed.js                           leitura e parse do feed JSON
 lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão + estimativas + push)
@@ -55,22 +66,26 @@ lib/previsao.js                       busca vazão (GloFAS) e clima (Open-Meteo)
 lib/calculo.js                        funções puras (classificar, cm/h, frescor, ETA cota) — testadas em tests/
 lib/push.js                           envio de notificação push (Web Push/VAPID) — testado em tests/
 lib/ana.js                            cross-check com a API oficial da ANA — testado em tests/
+lib/curva.js                          curva empírica vazão→nível (ajuste log-log) — testado em tests/
 scripts/coletar-local.js              roda a coleta fora do Vercel (terminal, GitHub Actions etc.)
 .github/workflows/coletar.yml         GitHub Actions: roda a coleta a cada 15 min, sem o Vercel
 tests/                                testes automatizados (node --test, sem dependência nova)
 public/index.html                     painel (estrutura HTML só; CSS/JS em css/ e js/)
 public/bacia.html                     mapa da bacia (Leaflet) + hierarquia dos rios
 public/acerto.html                    acerto da estimativa de cota, por antecedência
+public/fontes.html                    saúde da coleta + divergência entre as duas fontes de nível
 public/css/tema.css                   variáveis de cor (claro/escuro) — as 3 páginas carregam
 public/css/base.css                   reset + estilos base (body, button, .rodape-fontes...) — as 3 páginas carregam
 public/css/painel.css                 estilos só de index.html
 public/css/bacia.css                  estilos só de bacia.html
 public/css/acerto.css                 estilos só de acerto.html
+public/css/fontes.css                 estilos só de fontes.html
 public/js/tema.js                     toggle de tema claro/escuro — as 3 páginas carregam
 public/js/comum.js                    hora(), ROTULOS, CORES, CONDICOES/condicaoTexto — as 3 páginas carregam
 public/js/painel.js                   lógica só de index.html
 public/js/bacia.js                    lógica só de bacia.html (inclui o toggle do radar de chuva)
 public/js/acerto.js                   lógica só de acerto.html
+public/js/fontes.js                   lógica só de fontes.html
 public/js/push.js                     inscrever/cancelar notificação push — só index.html
 public/sw.js                          service worker (só recebe push — sem cache/offline)
 public/manifest.json                  PWA — nome, cores, ícones (pra "adicionar à tela inicial")
@@ -114,6 +129,9 @@ Em Settings → Environment Variables, adicione:
 | `ANA_SENHA`         | opcional — senha da API da ANA, **nunca** commitar no repo |
 | `LIMIAR_CHUVA_6H_MM` | opcional, default `40` — mm acumulados na janela que disparam o alerta de chuva (ver abaixo) |
 | `JANELA_CHUVA_HORAS` | opcional, default `6` — tamanho da janela usada nesse alerta |
+| `LIMIAR_SUBIDA_CM_H` | opcional, default `15` — cm/h sustentados que disparam o alerta de subida rápida |
+| `JANELA_SUBIDA_HORAS` | opcional, default `3` — janela usada pra medir esse ritmo |
+| `RETENCAO_LEITURAS_DIAS` | opcional, **vazio = desligado** — apaga leitura crua acima de N dias (piso de 400). Ver a ressalva no README antes de ligar |
 
 Gere o `CRON_SECRET` com: `openssl rand -hex 32`
 
@@ -257,8 +275,11 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação (inclui `chuvaAna`, chuva medida ANA na mesma janela) |
 | `GET /api/alertas`                      | últimos 30 alertas — nível (`tipo='nivel'`) e chuva acumulada (`tipo='chuva'`) misturados por data |
 | `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
+| `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha |
+| `GET /api/divergencia?dias=30`          | diferença entre nivelguaiba e ANA por estação (mediana, oscilação, deriva) |
+| `GET /api/curva?dias=90`                | erro da previsão de nível contra o nível medido, por estação |
 | `GET /api/coletar`                      | força uma coleta (requer o header) — 502 se o feed de nível estiver fora, com o corpo dizendo o que as outras fontes conseguiram fazer |
-| `POST /api/push`                        | inscreve pra notificação push (`{endpoint, keys:{p256dh,auth}}`) |
+| `POST /api/push`                        | inscreve/atualiza a notificação push (`{endpoint, keys:{p256dh,auth}, slugs?}` — `slugs` ausente = todas) |
 | `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
 
 ## Notas
@@ -589,10 +610,16 @@ uma das 14 estações entra em risco (atenção/alerta/alagado) ou volta ao
 normal, mesmo critério que já popula o histórico de alertas (`registrarAlertas()`
 em `lib/coletar.js`). Decisões de escopo (V1, deliberadas):
 
-- **Sem preferência por estação** — quem se inscreve recebe alerta de todas.
-  Se o grupo de uso crescer e isso virar ruído, dá pra evoluir pra uma tela
-  de preferências depois (exigiria uma coluna nova em `push_subscriptions`).
+- **Preferência por estação** (botão "⚙️ Estações", que só aparece com a
+  notificação ligada): coluna `slugs` em `push_subscriptions`, `NULL` =
+  todas. `NULL` em vez de um array com as 14 de propósito — "não escolheu" é
+  diferente de "escolheu todas", e só o primeiro deve passar a receber
+  automaticamente de uma estação nova que entre no painel depois. Marcar
+  todas, ou nenhuma, normaliza pra `NULL` nos dois lados (front e API), pra
+  "todas" ter uma representação só no banco.
 - **Notifica entrada em risco E volta ao normal** — não só "piorou".
+- **Vale pros três tipos** (🌊 nível, 🌧️ chuva, 📈 subida): o filtro é por
+  estação, não por tipo de aviso.
 
 Implementação é Web Push nativa do navegador (Service Worker +
 `PushManager` + VAPID) — **sem** Telegram, Firebase ou qualquer conta em
@@ -609,18 +636,37 @@ Uma inscrição expirada (o navegador revogou, cache limpo etc.) é detectada
 pelo próprio envio (`web-push` retorna 404/410) e apagada automaticamente
 de `push_subscriptions` — sem faxina manual.
 
+Três detalhes da preferência por estação que são decisões:
+
+- **O `INSERT` virou `DO UPDATE`.** Reinscrever o mesmo navegador é como a
+  pessoa *muda* a preferência — com o `DO NOTHING` de antes, a troca era
+  silenciosamente ignorada e ela seguia recebendo o que tinha antes.
+- **Slug desconhecido é recusado com 400**, não gravado. Uma preferência com
+  slug digitado errado viraria uma inscrição que nunca recebe nada, e
+  silêncio é indistinguível de "não houve alerta".
+- **Alerta sem `slug` vai pra todo mundo** (`alertaInteressa` em
+  `lib/push.js`): formato antigo ou origem que não identifica a estação.
+  Melhor notificar demais que engolir um aviso de cheia por detalhe de
+  formato.
+
+Não existe `GET /api/push`, de propósito: exporia a preferência de qualquer
+endpoint a quem soubesse a URL dele. O modal usa `localStorage` só pra não
+abrir vazio — a fonte da verdade é o banco, que é quem o envio consulta.
+
 ### Cross-check com a API oficial da ANA
 
-`lib/ana.js` busca, a cada coleta, a leitura mais recente de 12 das 14
-estações direto da API oficial da ANA (`hidrowebservice`,
-`HidroinfoanaSerieTelemetricaAdotada`) e grava numa tabela separada,
+`lib/ana.js` busca, a cada coleta, **as 48h inteiras de telemetria**
+(`DIAS_2`) de 12 das 14 estações direto da API oficial da ANA
+(`hidrowebservice`, `HidroinfoanaSerieTelemetricaAdotada`) e grava numa
+tabela separada,
 `leituras_ana` — que **não substitui** a fonte principal
 (`nivelguaiba.com.br`, via `lib/feed.js`).
 
 Duas colunas, dois papéis, e vale não confundir: o **`nivel`** da ANA é
 puro cross-check — nunca entra no cálculo de nível/status/alerta, é só um
 registro pra comparar as duas fontes ao longo do tempo antes de considerar
-qualquer mudança maior. Já a **`chuva_mm`** *é* lida pelo painel (ver
+qualquer mudança maior — comparação que agora existe de verdade, em
+`/fontes` (ver seção própria). Já a **`chuva_mm`** *é* lida pelo painel (ver
 "Chuva medida" logo abaixo): alimenta `chuvaMedidaAnaMm`/`frescorAna` em
 `/api/painel`, `chuvaAna` em `/api/historico` e o alerta `tipo='chuva'` —
 sempre rotulada "(ANA)" e em linha separada da previsão.
@@ -650,6 +696,26 @@ sempre rotulada "(ANA)" e em linha separada da previsão.
   cada 15 min é barato.
 - Opcional de propósito: sem `ANA_IDENTIFICADOR`/`ANA_SENHA` configuradas,
   `buscarNiveisAna()` retorna vazio sem erro — não derruba a coleta.
+
+**Por que guardar as 48h e não só a leitura mais recente:** a API devolve
+~192 registros por estação no mesmo payload, e o código antigo ficava com
+**um** e descartava os outros ~191 — dado já entregue, de graça. Guardar
+tudo (o `INSERT` já era idempotente por `(slug, medido_em)`) dá três coisas:
+série da ANA na resolução real da estação em vez de amostrada pela nossa
+cadência de coleta; **retroativo de 48h que tapa buraco quando o feed do
+nivelguaiba fica fora** — antes essas horas sumiam pra sempre; e chuva
+acumulada calculada sobre as leituras de verdade da janela, não sobre uma
+amostra delas.
+
+Isso muda o custo da gravação: ~2300 linhas por rodada em vez de 12. Por
+isso `registrarLeiturasAna` faz **bulk insert via `UNNEST`**, um comando só,
+em vez de um `INSERT` por leitura — o driver da Neon é HTTP, cada `sql` é
+uma requisição, e em loop isso seria ~2300 round-trips a cada 15 min. Da
+segunda rodada em diante quase tudo já está lá e o `ON CONFLICT DO NOTHING`
+não insere nada. O bulk também exige filtrar slugs desconhecidos antes de
+mandar: `leituras_ana` tem FK pra `estacoes`, e um comando único falha
+inteiro se **uma** linha violar — diferente do loop, onde uma linha ruim
+derrubava só a si mesma.
 
 Além do nível, a mesma resposta da ANA já traz `Chuva_Adotada` — chuva
 acumulada **medida** na própria estação, diferente da previsão do
@@ -688,6 +754,197 @@ acima):
   nesta fase — não substitui o número principal nem alimenta
   status/alerta (ver ressalva de datum acima); serve só pra notar quando
   uma fonte ficou defasada em relação à outra.
+
+### Volume de dados: rollup horário e retenção
+
+`leituras` cresce ~1.344 linhas/dia (14 estações × 96 coletas) — cerca de
+**490 mil por ano** — e `/api/painel` faz window function sobre a tabela
+inteira. Duas coisas pra isso não virar problema:
+
+**Rollup horário** (`leituras_horarias`, preenchido a cada coleta): min,
+máx, média e contagem por estação-hora. `atualizarRollup` só recalcula as
+últimas 3 horas, não a tabela inteira — só as horas recentes mudam, já que
+retroativo da ANA vai pra `leituras_ana`, não pra `leituras`.
+
+`/api/historico` passa a usar o rollup acima de 7 dias de janela: 90 dias em
+bruto são ~8.600 pontos por estação, mais do que a tela resolve e caro de
+trazer a cada abertura de modal. **O agregado devolve o MÁXIMO da hora, não
+a média** — numa escala de semanas é o pico da cheia que importa, e a média
+horária o suavizaria justamente onde ninguém quer suavização. A resposta traz
+`resolucao: 'bruto' | 'horario'` e o modal avisa na tela quando está
+mostrando máximo horário, em vez de deixar o leitor supor que cada ponto é
+uma medição.
+
+Guardar min *e* máx (e não só a média) é pelo mesmo motivo: a média horária
+sozinha esconderia o pico, que é a informação que mais importa nessa escala.
+
+**Retenção de dado bruto** (`RETENCAO_LEITURAS_DIAS`): **desligada por
+padrão, e isso é deliberado.** Apagar leitura crua é irreversível, e nenhum
+default deveria fazer isso sozinho no banco de ninguém. Só age se a variável
+for definida explicitamente. Mesmo assim há duas travas:
+
+1. **Piso de 400 dias.** Pedir menos não é obedecido — a janela máxima de
+   `/api/historico` é 90 dias e a curva vazão→nível ajusta sobre 1 ano;
+   retenção curta quebraria as duas em silêncio. O código eleva ao piso e
+   loga o aviso.
+2. **Só apaga hora que já está no rollup** (`EXISTS` no `DELETE`). O rollup
+   é o que sustenta a série longa depois que o bruto some; apagar antes de
+   agregar perderia o dado de vez.
+
+Na prática: o rollup resolve o custo de consulta sozinho, sem apagar nada. A
+retenção só faz sentido se o limite de armazenamento do Neon apertar.
+
+### Previsão de nível: a curva empírica (experimental)
+
+O README sempre disse — e continua verdade — que converter vazão em nível
+"de verdade" exige a curva-chave da estação, que não temos. **Isto não é
+uma curva-chave.**
+
+É uma regressão sobre dado que já estava no banco: para cada dia passado, a
+vazão que o GloFAS estimou pra aquele dia (`previsoes.vazao_m3s`, que fica
+guardada mesmo depois do dia vencer) contra o nível que a estação
+**realmente mediu** (média diária de `leituras`). O que ela ajusta é a
+composição de duas coisas: a relação física vazão-nível daquela régua **e** o
+viés do modelo naquele ponto da grade. Fisicamente é impuro. Mas o objetivo
+não é interpretação física, é valor preditivo: *"quando o GloFAS diz 800
+m³/s aqui, esta estação historicamente marcou ~12 m"*.
+
+**O ganho real não é a conveniência de ler em metros — é auditabilidade.** A
+vazão prevista é hoje o único número do painel que não dá pra conferir: não
+temos medição independente de vazão, só outro resultado do mesmo modelo, e
+comparar modelo com modelo não é validação (é exatamente o argumento que a
+página `/acerto` já usava pra se recusar a avaliar vazão). Convertida em
+nível, ela vira falsificável — nível a gente mede. É isso que
+`GET /api/curva` e o terceiro bloco de `/fontes` mostram: erro médio, erro
+mediano e **viés com sinal** de cada estação, contra o que aconteceu.
+
+Viés separado do erro absoluto de propósito: uma curva que erra ±30 cm pra
+cima e pra baixo é coisa diferente de uma que erra 30 cm **sempre** pra
+cima — a segunda dá pra corrigir.
+
+Detalhes de implementação que são decisões, não acidentes:
+
+- **Lei de potência ajustada em log-log** (`h = a·Q^b` vira reta sobre
+  `ln Q × ln h`): mínimos quadrados de solução fechada, sem iteração e sem
+  dependência nova. Dois parâmetros só, de propósito — com poucas dezenas de
+  pontos diários e ruído dos dois lados, um modelo mais flexível decoraria
+  o ruído em vez da relação.
+- **Não extrapola.** `estimarNivel` devolve `null` quando a vazão está fora
+  da faixa em que a curva foi ajustada. É onde uma lei de potência erra
+  feio — e numa cheia, justamente quando importa, erraria pra cima. Por isso
+  é normal alguns dias da previsão aparecerem sem `≈ m`; o rodapé no modal
+  explica isso em vez de deixar o buraco sem justificativa.
+- **Só publica com lastro**: mínimo de 30 pares e R² ≥ 0,5
+  (`MINIMO_PARES`/`MINIMO_R2` em `lib/curva.js`). Abaixo disso a curva é
+  ajustada e guardada, mas não vira número na tela. No começo, a maioria das
+  estações vai estar assim — e é assim que tem que ser.
+- **O número nunca aparece sozinho.** O rodapé do modal traz sempre n, R² e
+  erro médio junto do `≈ m`. Mostrar "≈ 12,40 m" sem dizer que a curva erra
+  ±0,45 m em média convidaria a confiar mais do que o número aguenta.
+- **`nivel_estimado_m` é o único campo do `INSERT` de previsões sem
+  `COALESCE`.** Se a curva deixou de ser confiável, o certo é apagar a
+  estimativa antiga, não preservá-la — manter um número que o modelo atual
+  não sustenta é pior que não mostrar nada.
+- **Reajuste 1x/dia**, janela de 1 ano. Os pares são médias diárias, então
+  reajustar mais de uma vez por dia refaria a mesma conta; e 1 ano cobre
+  estiagem e cheia (a curva precisa das duas pontas pra ter faixa útil) sem
+  arrastar dado que talvez nem reflita a régua atual — a recalibração de
+  2024 em Porto Alegre é o lembrete de que régua muda.
+- **A avaliação não precisou de tabela nova.** `previsoes` guarda linhas de
+  dias passados com o `nivel_estimado_m` que valia na época, e `leituras`
+  tem o que aconteceu: é uma query sobre dado que já existe.
+
+### Alerta de subida rápida
+
+Terceiro eixo de alerta, independente dos outros dois. O alerta de nível
+reage a **patamar** (60/80/100% da cota) e o de chuva reage a **entrada de
+água**; este reage a **ritmo**.
+
+O motivo: um rio a 40% da cota subindo 20 cm/h sustentados é mais urgente
+que um parado a 85%. O primeiro chega na cota hoje; o segundo pode ficar
+onde está por uma semana. Sem isso, o sistema só avisava **depois** que o
+patamar tinha sido cruzado — que é tarde pra quem precisa tirar coisa do
+chão.
+
+Usa `calcularSubidaSustentada` (`lib/calculo.js`), que mede entre as pontas
+de uma janela de horas (`JANELA_SUBIDA_HORAS`, default 3h) — **não**
+`calcularVelocidade`, que usa as duas últimas leituras. Essa distinção é o
+ponto todo: o README já documentava que a velocidade instantânea "pode
+ficar zerada mesmo com uma tendência clara ao longo do dia (flutuação
+normal do instrumento entre duas leituras consecutivas)". Ruído tolerável
+num número exibido no card; inaceitável pra disparar notificação, porque
+alertaria por oscilação de instrumento e ficaria calado numa subida real e
+constante.
+
+Devolve `null` — e não alerta — quando a janela tem cobertura menor que
+metade do pedido (estação nova, ou buraco de coleta): melhor não afirmar
+ritmo do que dividir uma diferença real por um intervalo que não
+representa a janela.
+
+Grava em `alertas` com `tipo='subida'` e `velocidade_cm_h`, seguindo
+exatamente o mesmo dedup por transição de status dos outros dois tipos —
+só notifica quando o status **muda**, não a cada rodada enquanto o rio
+continua subindo. O push usa emoji próprio (`📈 <cidade>` / "subindo X cm/h
+nas últimas Yh"): na tela de notificação do celular o título é quase tudo
+que se lê, e 🌊/🌧️/📈 já dizem qual dos três eixos disparou antes de abrir.
+
+### Página de confiança nas fontes (`/fontes`)
+
+Responde duas perguntas que o painel não respondia, e que são bem diferentes
+uma da outra:
+
+**1. A coleta está rodando?** (`GET /api/saude`, tabela `coletas`) — cada
+rodada de `executarColeta()` grava uma linha com feed OK/erro, se a ANA
+respondeu, quantas leituras entraram, quantos alertas saíram e quanto
+demorou. O painel já mostrava `frescor`, mas frescor diz se o dado está
+velho **agora**; isso aqui diz se aquilo é um soluço ou o terceiro do dia —
+e distingue "o feed falhou" de "o feed respondeu e não tinha novidade", que
+o painel não tem como separar (`leituras_inseridas = 0` é rotina, o feed não
+atualiza toda estação a cada 15 min).
+
+Além do uptime por fonte em 24h/7d, mostra a **maior lacuna entre duas
+rodadas** na janela — é o número que revela "ficou 3h sem coletar", que
+nenhuma média mostra. Só é sinalizada como anormal acima de 3× o intervalo
+agendado, porque o GitHub Actions atrasa alguns minutos rotineiramente.
+`ana_ok` é `NULL` quando as credenciais da ANA não estão configuradas:
+ausência de feature opcional não é falha, e some da conta em vez de puxar a
+taxa pra baixo.
+
+**2. As duas fontes de nível concordam?** (`GET /api/divergencia`) — essa é a
+razão de `leituras_ana` existir. O schema sempre disse que a tabela servia
+"pra comparar as duas fontes ao longo do tempo antes de considerar qualquer
+mudança maior", mas **nada lia a coluna `nivel`**: ela era gravada a cada 15
+min e nunca olhada. Agora vira informação.
+
+O emparelhamento é por **bucket de hora**, não por "leitura mais próxima":
+as duas fontes não medem no mesmo instante nem na mesma cadência, e casar a
+mais próxima criaria pares com defasagem variável — num rio subindo rápido,
+20 min de defasagem viram centímetros que não são divergência de régua, são
+desencontro de horário. A média horária de cada fonte tira esse ruído.
+
+Três números por estação, e o veredito sai da combinação deles:
+
+| Veredito | O que significa |
+| --- | --- |
+| **concordam** | diferença mediana ≤ 5 cm — as duas réguas leem o mesmo |
+| **offset estável** | diferença grande mas constante: é datum diferente, não erro (o caso do Gasômetro, ver nota em `schema.sql`) |
+| **oscila** | o miolo p10–p90 passa de 15 cm: não é offset de régua, é discordância real |
+| **derivando** | a mediana da metade recente difere da antiga em ≥ 10 cm — alguma coisa mexeu numa das réguas no meio do caminho |
+| **dado insuficiente** | menos de 24h pareadas |
+
+Os limiares ficam no topo de `public/js/fontes.js`, não escondidos no meio
+da lógica — são escolha nossa de leitura, não algo que veio do dado, e
+mudar um deles não deveria exigir caçar onde está.
+
+Isso responde direto à ressalva documentada estação por estação em
+`ESTACOES_ANA` ("escolhemos a rede SGB-CPRM, mas só validamos a régua a
+fundo pra Porto Alegre"). As cores dos vereditos são deliberadamente
+**fora** da paleta de status do painel: aqui é qualidade de dado, não risco
+de enchente, e confundir as duas leituras seria pior que não ter cor.
+
+As 2 estações sem código ANA (`lajeado`, `rocasales`) aparecem numa nota
+explícita de "sem comparação **por decisão**, não por falha" — pra a página
+não parecer que perdeu dado.
 
 ### Qualidade e transparência dos dados
 
