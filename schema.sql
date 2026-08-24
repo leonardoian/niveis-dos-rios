@@ -48,7 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_leituras_slug_data
 CREATE TABLE IF NOT EXISTS alertas (
     id           BIGSERIAL PRIMARY KEY,
     slug         TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
-    status       TEXT NOT NULL,                 -- atencao | alerta | alagado | chuva_alerta | chuva_normal
+    status       TEXT NOT NULL,                 -- normal | atencao | alerta | alagado | chuva_alerta | chuva_normal
     nivel        NUMERIC(7,2),                  -- NULL nos alertas de chuva (ver tipo)
     criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -71,7 +71,8 @@ CREATE INDEX IF NOT EXISTS idx_alertas_slug_tipo_data
 -- Previsão diária por estação — vazão (m³/s, não nível em metros — ver nota
 -- em lib/previsao.js) e clima (Open-Meteo, mesmo provedor). Colunas anuláveis
 -- porque vazão e clima vêm de duas chamadas independentes: se uma falhar, a
--- outra ainda grava sua parte. Atualizada no máximo 1x/dia por estação.
+-- outra ainda grava sua parte. Atualizada no máximo 1x a cada 6h (~4x/dia)
+-- por estação — ver atualizarPrevisoes em lib/coletar.js.
 CREATE TABLE IF NOT EXISTS previsoes (
     id               BIGSERIAL PRIMARY KEY,
     slug             TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
@@ -146,9 +147,13 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 
 -- Cross-check com a API oficial da ANA (ver lib/ana.js) — mesmo formato de
--- leituras, propositalmente SEPARADA: nunca é lida pelo cálculo do painel
--- (api/painel.js continua 100% baseado em leituras, a fonte atual via
--- nivelguaiba.com.br). Só 12 das 14 estações têm código ANA mapeado —
+-- leituras, propositalmente SEPARADA: a coluna `nivel` daqui nunca entra no
+-- cálculo de nível/status/alerta do painel (api/painel.js continua 100%
+-- baseado em `leituras`, a fonte atual via nivelguaiba.com.br). A coluna
+-- `chuva_mm` é lida, sim — alimenta chuvaMedidaAnaMm/frescorAna em
+-- /api/painel, chuvaAna em /api/historico e o alerta tipo='chuva' — mas
+-- sempre rotulada "(ANA)" e nunca conflada com o nível.
+-- Só 12 das 14 estações têm código ANA mapeado —
 -- lajeado e rocasales ficam de fora até resolver ambiguidades encontradas
 -- no inventário oficial (ver comentário em ESTACOES_ANA).
 CREATE TABLE IF NOT EXISTS leituras_ana (

@@ -24,7 +24,11 @@ export default async function handler(req, res) {
 
   try {
     const resultado = await executarColeta();
-    return res.status(200).json(resultado);
+    // 502 quando o feed de nível falhou: a coleta em si rodou (previsão e
+    // ANA seguiram, ver lib/coletar.js) e o corpo diz exatamente o que
+    // aconteceu, mas o status precisa continuar não-2xx pro agendador
+    // externo alertar em vez de contar como sucesso silencioso.
+    return res.status(resultado.ok ? 200 : 502).json(resultado);
   } catch (erro) {
     console.error('Falha na coleta:', erro);
     return res.status(500).json({ ok: false, erro: erro.message });
