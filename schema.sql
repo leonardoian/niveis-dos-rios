@@ -181,6 +181,31 @@ ALTER TABLE leituras_ana ADD COLUMN IF NOT EXISTS chuva_mm NUMERIC(6,2);
 CREATE INDEX IF NOT EXISTS idx_leituras_ana_slug_data
     ON leituras_ana (slug, medido_em DESC);
 
+-- Agregado horário de `leituras`, preenchido incrementalmente a cada coleta
+-- (ver atualizarRollup em lib/coletar.js).
+--
+-- Motivo: `leituras` cresce ~1.344 linhas/dia (14 estações × 96 coletas) —
+-- cerca de 490 mil/ano — e /api/painel faz window function sobre a tabela
+-- inteira. O rollup deixa as janelas longas do gráfico (30d, 90d) baratas
+-- sem precisar apagar nada, e é o que permite manter anos de histórico
+-- mesmo se um dia a retenção de dado bruto for ligada.
+--
+-- Guarda min/máx além da média de propósito: numa janela de 90 dias a média
+-- horária esconderia exatamente o pico de uma cheia, que é a informação que
+-- mais importa nessa escala de tempo.
+CREATE TABLE IF NOT EXISTS leituras_horarias (
+    slug        TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
+    hora        TIMESTAMPTZ NOT NULL,      -- date_trunc('hour', medido_em)
+    n           INT NOT NULL,
+    nivel_min   NUMERIC(7,2) NOT NULL,
+    nivel_max   NUMERIC(7,2) NOT NULL,
+    nivel_med   NUMERIC(7,2) NOT NULL,
+    PRIMARY KEY (slug, hora)
+);
+
+CREATE INDEX IF NOT EXISTS idx_leituras_horarias_slug_hora
+    ON leituras_horarias (slug, hora DESC);
+
 -- Curva empírica vazão → nível por estação (ver lib/curva.js), reajustada
 -- no máximo 1x/dia a partir do histórico pareado que já temos:
 -- previsoes.vazao_m3s (modelo) × média diária de leituras.nivel (medido).

@@ -782,6 +782,7 @@ function fecharHistorico() {
   document.getElementById('modalNota').hidden = true;
   document.getElementById('modalNota').textContent = '';
   document.getElementById('modalChuvaLegenda').hidden = true;
+  document.getElementById('modalResolucao').hidden = true;
   document.getElementById('prevClima').innerHTML = '';
   alternarAba('nivel');
 }

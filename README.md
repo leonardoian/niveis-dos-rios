@@ -131,6 +131,7 @@ Em Settings → Environment Variables, adicione:
 | `JANELA_CHUVA_HORAS` | opcional, default `6` — tamanho da janela usada nesse alerta |
 | `LIMIAR_SUBIDA_CM_H` | opcional, default `15` — cm/h sustentados que disparam o alerta de subida rápida |
 | `JANELA_SUBIDA_HORAS` | opcional, default `3` — janela usada pra medir esse ritmo |
+| `RETENCAO_LEITURAS_DIAS` | opcional, **vazio = desligado** — apaga leitura crua acima de N dias (piso de 400). Ver a ressalva no README antes de ligar |
 
 Gere o `CRON_SECRET` com: `openssl rand -hex 32`
 
@@ -730,6 +731,45 @@ acima):
   nesta fase — não substitui o número principal nem alimenta
   status/alerta (ver ressalva de datum acima); serve só pra notar quando
   uma fonte ficou defasada em relação à outra.
+
+### Volume de dados: rollup horário e retenção
+
+`leituras` cresce ~1.344 linhas/dia (14 estações × 96 coletas) — cerca de
+**490 mil por ano** — e `/api/painel` faz window function sobre a tabela
+inteira. Duas coisas pra isso não virar problema:
+
+**Rollup horário** (`leituras_horarias`, preenchido a cada coleta): min,
+máx, média e contagem por estação-hora. `atualizarRollup` só recalcula as
+últimas 3 horas, não a tabela inteira — só as horas recentes mudam, já que
+retroativo da ANA vai pra `leituras_ana`, não pra `leituras`.
+
+`/api/historico` passa a usar o rollup acima de 7 dias de janela: 90 dias em
+bruto são ~8.600 pontos por estação, mais do que a tela resolve e caro de
+trazer a cada abertura de modal. **O agregado devolve o MÁXIMO da hora, não
+a média** — numa escala de semanas é o pico da cheia que importa, e a média
+horária o suavizaria justamente onde ninguém quer suavização. A resposta traz
+`resolucao: 'bruto' | 'horario'` e o modal avisa na tela quando está
+mostrando máximo horário, em vez de deixar o leitor supor que cada ponto é
+uma medição.
+
+Guardar min *e* máx (e não só a média) é pelo mesmo motivo: a média horária
+sozinha esconderia o pico, que é a informação que mais importa nessa escala.
+
+**Retenção de dado bruto** (`RETENCAO_LEITURAS_DIAS`): **desligada por
+padrão, e isso é deliberado.** Apagar leitura crua é irreversível, e nenhum
+default deveria fazer isso sozinho no banco de ninguém. Só age se a variável
+for definida explicitamente. Mesmo assim há duas travas:
+
+1. **Piso de 400 dias.** Pedir menos não é obedecido — a janela máxima de
+   `/api/historico` é 90 dias e a curva vazão→nível ajusta sobre 1 ano;
+   retenção curta quebraria as duas em silêncio. O código eleva ao piso e
+   loga o aviso.
+2. **Só apaga hora que já está no rollup** (`EXISTS` no `DELETE`). O rollup
+   é o que sustenta a série longa depois que o bruto some; apagar antes de
+   agregar perderia o dado de vez.
+
+Na prática: o rollup resolve o custo de consulta sozinho, sem apagar nada. A
+retenção só faz sentido se o limite de armazenamento do Neon apertar.
 
 ### Previsão de nível: a curva empírica (experimental)
 
