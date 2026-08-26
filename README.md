@@ -59,11 +59,12 @@ api/push.js                           inscrição/cancelamento de notificação 
 api/saude.js                          histórico de saúde da coleta (uptime por fonte, lacunas)
 api/divergencia.js                    comparação nivelguaiba × ANA, por estação
 api/curva.js                          acerto da previsão de nível, medido contra o nível real
+api/projecoes.js                      erro das projeções de nível por horizonte fixo (MAE/RMSE/viés/NSE)
 lib/db.js                             conexão com o Neon
 lib/feed.js                           leitura e parse do feed JSON
 lib/coletar.js                        lógica de coleta em si (fetch + grava + alertas + previsão + estimativas + push)
 lib/previsao.js                       busca vazão (GloFAS) e clima (Open-Meteo) por coordenada
-lib/calculo.js                        funções puras (classificar, cm/h, frescor, ETA cota) — testadas em tests/
+lib/calculo.js                        funções puras (classificar, cm/h, frescor, ETA cota, projeção de nível) — testadas em tests/
 lib/push.js                           envio de notificação push (Web Push/VAPID) — testado em tests/
 lib/ana.js                            cross-check com a API oficial da ANA — testado em tests/
 lib/curva.js                          curva empírica vazão→nível (ajuste log-log) — testado em tests/
@@ -286,6 +287,7 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha |
 | `GET /api/divergencia?dias=30`          | diferença entre nivelguaiba e ANA por estação (mediana, oscilação, deriva) |
 | `GET /api/curva?dias=90`                | erro da previsão de nível contra o nível medido, por estação |
+| `GET /api/projecoes`                    | erro das projeções de nível por método × horizonte (n, MAE, RMSE, viés, NSE) |
 | `GET /api/coletar`                      | força uma coleta (requer o header) — 502 se o feed de nível estiver fora, com o corpo dizendo o que as outras fontes conseguiram fazer |
 | `POST /api/push`                        | inscreve/atualiza a notificação push (`{endpoint, keys:{p256dh,auth}, slugs?}` — `slugs` ausente = todas) |
 | `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
@@ -546,6 +548,73 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
     ruído, como documentado em `calcularEtaCota`); um resultado "ruim" pras
     janelas longas não é bug, é o preço honesto de uma extrapolação simples
     tentando prever longe.
+
+### Projeção de nível por horizonte fixo
+
+Instrumentação para a pergunta acadêmica do TCC: **até que horizonte uma linha
+de base de persistência ainda produz estimativa útil**, e onde as alternativas
+passam a valer a pena. Tabela `projecoes_nivel`, `registrarProjecoesNivel`/
+`avaliarProjecoesNivel` em `lib/coletar.js`, `projetarNivel` em
+`lib/calculo.js`, agregação em `GET /api/projecoes`.
+
+- **Por que não dava pra usar a `estimativas_cota` que já existia:** o objeto
+  previsto é outro. Lá se prevê um **tempo** (quando o nível cruza a cota) e
+  se mede acerto/erro; a literatura de previsão fluvial — inclusive as
+  previsões emergenciais do Guaíba publicadas na **RBRH 30 (2025)** — avalia
+  um **nível** por horizonte fixo, com RMSE e NSE. São grandezas diferentes,
+  e nenhuma conversão honesta leva de uma à outra. Sem registrar o nível
+  previsto por horizonte, nada do que este sistema produz é comparável com
+  esses trabalhos.
+- **A persistência é a referência**, e é de propósito burra: `projetarNivel`
+  com `metodo: 'persistencia'` devolve o nível atual, sem suavização, sem
+  clamp, sem tratamento especial. Qualquer esperteza embutida ali viraria uma
+  vantagem invisível da linha de base sobre os métodos que ela deveria medir
+  — e um resultado que ninguém consegue reproduzir, porque ninguém mais roda
+  a nossa versão temperada de persistência. A mesma regra vale pra
+  `'tendencia'` (extrapolação linear pela velocidade em cm/h, a mesma conta de
+  `calcularEtaCota`): numa descida longa ela projeta nível negativo, e deve
+  mesmo — é assim que o erro dela aparece na métrica em vez de ficar escondido
+  atrás de um `Math.max(0, ...)`.
+- **Três métodos, mesmos horizontes (6/12/24/48h), gravados lado a lado** a
+  cada coleta: `persistencia`, `tendencia` e `curva` (esta última é o
+  `nivel_estimado_m` que a curva empírica vazão→nível já produz pro dia do
+  alvo — ver a seção da curva). A `curva` só existe quando a estação tem curva
+  confiável e a vazão caiu na faixa ajustada, então tem N bem menor que os
+  outros dois; isso é esperado e precisa entrar na leitura do resultado.
+- **Grava sempre, em toda rodada** — aqui **não** existe a trava de "uma em
+  aberto por vez" da `estimativas_cota`. Lá a trava evitava dezenas de linhas
+  redundantes descrevendo o mesmo evento de subida; aqui a série densa **é** o
+  dado: métrica por horizonte precisa de N, e cada rodada é uma emissão
+  legítima de previsão, como se avalia previsão operacional. São ~112 linhas
+  por rodada (14 estações × 4 horizontes × 2 métodos, mais a `curva` quando
+  existe), por isso tanto a gravação quanto a avaliação são comandos únicos em
+  bulk, não um `INSERT`/`UPDATE` por linha.
+- **Avaliação:** quando `alvo_em` + 30 min já passou, busca em `leituras` a
+  medição mais próxima de `alvo_em` dentro de ±30 min (a coleta roda a cada 15
+  min, então quase sempre existe uma). Sem leitura na janela, a linha é
+  fechada mesmo assim com `erro_m` NULL — "não houve medição pra comparar" é
+  informação diferente de "ainda não deu a hora", e as duas aparecem separadas
+  em `/api/projecoes`. O erro é `nivel_real − nivel_previsto`, **com sinal**:
+  é o que separa dispersão de viés, e só viés dá pra corrigir.
+- **`alvo_em` conta a partir de `gerada_em`**, não da última medição. A
+  defasagem até a leitura que alimentou a projeção (< 15 min no caso normal)
+  entra no erro em vez de ser descontada — é assim que uma previsão
+  operacional é julgada: quem consulta às 14h quer saber das 20h, não de "20h
+  menos o atraso da telemetria".
+- **Nada de backfill retroativo.** As projeções só valem porque foram emitidas
+  *antes* do fato: gerar linhas a partir do histórico produziria números
+  bonitos e cientificamente vazios (o "previsor" teria visto o futuro na hora
+  de escolher o que prever). Por isso a série começa vazia e vai enchendo a
+  ~112 linhas por rodada — o N útil aparece em dias, não em minutos.
+- **Como ler o NSE da persistência:** em série de nível de rio a
+  autocorrelação é altíssima, então a persistência costuma dar NSE alto mesmo
+  em horizonte longo. Isso é uma crítica conhecida da métrica, não um mérito
+  do método — é justamente por isso que `/api/projecoes` devolve os quatro
+  números (n, MAE, RMSE, viés, NSE) lado a lado, em vez de um só.
+- A rota **não** tem parâmetro de janela, ao contrário de `/api/curva` e
+  `/api/divergencia`: aquelas servem uma página que mostra "como está agora",
+  esta serve uma análise, e métrica sobre janela móvel muda de valor todo dia
+  sem que nada tenha mudado no método.
 
 ### Vazão e clima previstos
 
@@ -1139,7 +1208,7 @@ npm test
 
 Usa o test runner nativo do Node (`node --test`), sem dependência nova de
 teste. Cobre as funções puras de `lib/calculo.js` (classificar, cm/h,
-frescor), `lib/feed.js` (parse do feed) — inclusive o caso do bug real que
+frescor, projeção de nível e as métricas de erro dela), `lib/feed.js` (parse do feed) — inclusive o caso do bug real que
 já encontramos (nível sem casa decimal, tipo "1 metros") — e `lib/push.js`
 (payload da notificação, detecção de inscrição expirada). Não testa rotas
 HTTP nem acesso ao banco — essas dependem de `DATABASE_URL` e são
