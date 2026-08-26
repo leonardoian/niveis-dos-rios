@@ -161,11 +161,14 @@ CREATE INDEX IF NOT EXISTS idx_estimativas_cota_avaliadas
 --                  faixa ajustada, então tem N bem menor que os outros dois
 --                  — de propósito, e a análise precisa levar isso em conta.
 --
--- E, diferente de estimativas_cota, aqui NÃO existe "uma em aberto por
--- vez": grava em TODA coleta. Lá a trava evitava dezenas de linhas
--- redundantes descrevendo o mesmo evento; aqui a série densa é o dado — a
--- métrica por horizonte precisa de N, e cada rodada é uma emissão legítima
--- de previsão (a mesma lógica de quem avalia previsão operacional).
+-- Cadência: UMA emissão por hora por estação, não uma por coleta. A coleta
+-- roda a cada 15 min, mas projeções emitidas a cada 15 min são quase
+-- idênticas entre si e seus erros são fortemente autocorrelacionados —
+-- reportar o n bruto delas inflaria artificialmente a amostra na análise
+-- estatística (quatro linhas quase iguais contadas como quatro observações
+-- independentes). De quebra, o volume cai de ~10,7 mil pra ~2,7 mil
+-- linhas/dia. Não é a trava de "uma em aberto por vez" da estimativas_cota:
+-- aqui não se espera a anterior ser avaliada, cada hora emite a sua.
 CREATE TABLE IF NOT EXISTS projecoes_nivel (
     id               BIGSERIAL PRIMARY KEY,
     slug             TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
@@ -184,8 +187,9 @@ CREATE TABLE IF NOT EXISTS projecoes_nivel (
     -- sistemática) — um método que erra ±30 cm pros dois lados é coisa
     -- diferente de um que erra 30 cm sempre pra baixo, e só o segundo dá
     -- pra corrigir. Mesmo raciocínio do vies_m em /api/curva.
-    erro_m           NUMERIC(7,3),
-    CONSTRAINT projecoes_nivel_unicas UNIQUE (slug, metodo, horizonte_h, gerada_em)
+    erro_m           NUMERIC(7,3)
+    -- A chave de unicidade é um índice por HORA, logo abaixo — não cabe
+    -- aqui dentro porque envolve expressão (date_trunc).
 );
 
 -- Idempotente: bancos que criaram a tabela antes destas colunas existirem.
@@ -193,6 +197,41 @@ ALTER TABLE projecoes_nivel ADD COLUMN IF NOT EXISTS velocidade_cm_h NUMERIC(8,2
 ALTER TABLE projecoes_nivel ADD COLUMN IF NOT EXISTS avaliada_em TIMESTAMPTZ;
 ALTER TABLE projecoes_nivel ADD COLUMN IF NOT EXISTS nivel_real NUMERIC(7,2);
 ALTER TABLE projecoes_nivel ADD COLUMN IF NOT EXISTS erro_m NUMERIC(7,3);
+
+-- Unicidade POR HORA, não pelo timestamp exato: a gravação é 1x/hora por
+-- estação (ver registrarProjecoesNivel em lib/coletar.js), e uma chave com
+-- gerada_em cravado deixaria duas rodadas da mesma hora passarem batido —
+-- exatamente o que a cadência horária existe pra impedir.
+--
+-- date_trunc sobre `gerada_em AT TIME ZONE 'UTC'` porque índice exige
+-- expressão IMMUTABLE, e date_trunc('hour', timestamptz) é só STABLE
+-- (depende do TimeZone da sessão). O fuso escolhido não muda o resultado:
+-- hora cheia em UTC e em America/Sao_Paulo são o mesmo balde de 60 min,
+-- já que o offset é inteiro.
+ALTER TABLE projecoes_nivel DROP CONSTRAINT IF EXISTS projecoes_nivel_unicas;
+
+-- Em DO block em vez de um CREATE UNIQUE INDEX solto por um motivo só: um
+-- banco que já rodou a versão anterior (gravação a cada 15 min) tem várias
+-- linhas do mesmo trio dentro da mesma hora, e o índice único falharia
+-- levando o script inteiro junto. Apagar as repetidas pra "resolver" está
+-- fora de questão — é dado prospectivo já emitido, e apagar isso é
+-- irreversível. Então avisa e segue: a cadência horária já está garantida
+-- pela aplicação, e o índice entra quando o operador decidir o que fazer
+-- com o histórico misto (o de sempre: separar por gerada_em < data do
+-- deploy, ou simplesmente deixar como está e filtrar na análise).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM projecoes_nivel
+    GROUP BY slug, metodo, horizonte_h, date_trunc('hour', gerada_em AT TIME ZONE 'UTC')
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE NOTICE 'projecoes_nivel: existem linhas do mesmo (slug, metodo, horizonte_h) na mesma hora, da época em que a gravação era a cada 15 min — o índice único por hora NÃO foi criado. Nenhuma linha foi apagada; a aplicação já grava 1x/hora.';
+  ELSE
+    CREATE UNIQUE INDEX IF NOT EXISTS projecoes_nivel_unicas_hora
+      ON projecoes_nivel (slug, metodo, horizonte_h, (date_trunc('hour', gerada_em AT TIME ZONE 'UTC')));
+  END IF;
+END $$;
 
 -- Espelham os índices de estimativas_cota (um parcial pras pendentes, outro
 -- pras avaliadas), adaptados às duas únicas consultas que existem sobre
@@ -327,6 +366,17 @@ CREATE TABLE IF NOT EXISTS coletas (
     previsoes_atualizadas  INT NOT NULL DEFAULT 0,
     alertas_criados        INT NOT NULL DEFAULT 0
 );
+
+-- Idempotente: bancos que criaram a tabela antes destas colunas existirem.
+--
+-- projecoes_gravadas fecha um ponto cego real: o registro das projeções roda
+-- dentro de try/catch (é instrumentação, não pode derrubar a coleta), então
+-- uma falha permanente — schema.sql não aplicado depois do deploy, por
+-- exemplo — deixaria projecoes_nivel vazia sem que nada, visto de fora,
+-- parecesse diferente de uma coleta saudável. Com o contador e a mensagem em
+-- `coletas`, /api/saude mostra na hora.
+ALTER TABLE coletas ADD COLUMN IF NOT EXISTS projecoes_gravadas INT NOT NULL DEFAULT 0;
+ALTER TABLE coletas ADD COLUMN IF NOT EXISTS erro_projecoes TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_coletas_data ON coletas (iniciada_em DESC);
 

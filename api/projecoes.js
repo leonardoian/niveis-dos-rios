@@ -1,5 +1,5 @@
 import { sql } from '../lib/db.js';
-import { metricasProjecao } from '../lib/calculo.js';
+import { metricasProjecao, skillScore } from '../lib/calculo.js';
 
 // GET /api/projecoes
 //
@@ -16,6 +16,21 @@ import { metricasProjecao } from '../lib/calculo.js';
 // as previsões emergenciais do Guaíba na RBRH 30 (2025), que registra
 // justamente a falta de uma referência de persistência.
 //
+// Devolve duas coisas que respondem a perguntas diferentes:
+//
+//   `grupos`      — n, MAE, RMSE, viés e NSE por método × horizonte. O NSE
+//                   compara com a MÉDIA das observações: é a métrica que a
+//                   literatura reporta, então é o que permite comparar este
+//                   sistema com outros trabalhos.
+//   `skillScores` — SS = 1 − MSE(metodo)/MSE(persistencia) por horizonte,
+//                   para 'tendencia' e 'curva'. Este é o RESULTADO: em
+//                   previsão de curto prazo a referência honesta é a
+//                   persistência, não a média do período. SS > 0 = o método
+//                   ganha da persistência; SS ≤ 0 = extrapolar não
+//                   acrescentou nada, e a linha de base burra bastava.
+//                   O horizonte em que o SS cruza o zero é a resposta da
+//                   pergunta do TCC.
+//
 // Sem parâmetro de janela, de propósito: as outras rotas de avaliação
 // recortam por dias porque servem uma página que mostra "como está agora";
 // esta serve uma análise, e uma métrica calculada sobre uma janela móvel
@@ -26,8 +41,8 @@ const ORDEM_METODOS = { persistencia: 0, tendencia: 1, curva: 2 };
 export default async function handler(req, res) {
   try {
     // O Postgres agrega e devolve só as somas suficientes — a tabela ganha
-    // ~112 linhas por rodada (~10 mil por dia), então trazer as linhas cruas
-    // pro Node pra somar aqui deixaria de funcionar em poucas semanas. A
+    // ~112 linhas por hora (~2,7 mil por dia), então trazer as linhas cruas
+    // pro Node pra somar aqui deixaria de funcionar em poucos meses. A
     // derivação das métricas em cima dessas somas é metricasProjecao
     // (lib/calculo.js), pura e testada em tests/calculo.test.js.
     const grupos = await sql`
@@ -60,6 +75,48 @@ export default async function handler(req, res) {
       FROM projecoes_nivel
     `;
 
+    // Skill score: comparação PAREADA com a persistência, sobre exatamente
+    // os mesmos alvos avaliados nos dois métodos.
+    //
+    // O pareamento não é preciosismo: 'curva' só existe nos dias em que a
+    // estação tem previsão de nível utilizável, que costumam ser os dias de
+    // vazão alta. Comparar o MSE dela (medido só nesses dias) contra o MSE
+    // da persistência (medido em todos) mediria a diferença entre os dias,
+    // não entre os métodos — e com sinal imprevisível, porque dia de cheia
+    // é justamente quando a persistência erra mais. Restringir à
+    // interseção elimina isso.
+    //
+    // A chave do par é (slug, horizonte_h, alvo_em), e o JOIN é 1:1 por
+    // construção: alvo_em = gerada_em + horizonte_h, então alvos iguais no
+    // mesmo horizonte só existem se vierem da mesma emissão.
+    const pareados = await sql`
+      WITH avaliadas AS (
+        SELECT slug, metodo, horizonte_h, alvo_em, erro_m
+        FROM projecoes_nivel
+        WHERE avaliada_em IS NOT NULL
+          AND erro_m IS NOT NULL
+      ),
+      referencia AS (
+        SELECT slug, horizonte_h, alvo_em, erro_m
+        FROM avaliadas
+        WHERE metodo = 'persistencia'
+      )
+      SELECT
+        a.metodo,
+        a.horizonte_h,
+        COUNT(*)::int                AS n,
+        SUM(a.erro_m * a.erro_m)     AS soma_erro2_metodo,
+        SUM(r.erro_m * r.erro_m)     AS soma_erro2_persistencia
+      FROM avaliadas a
+      JOIN referencia r
+        ON r.slug = a.slug
+       AND r.horizonte_h = a.horizonte_h
+       AND r.alvo_em = a.alvo_em
+      WHERE a.metodo <> 'persistencia'
+      GROUP BY a.metodo, a.horizonte_h
+      ORDER BY a.metodo, a.horizonte_h
+    `;
+
     // SUM() de NUMERIC volta como string no driver da Neon — converte antes
     // de qualquer conta, senão o "+" vira concatenação.
     const num = (v) => (v === null || v === undefined ? 0 : Number(v));
@@ -84,6 +141,21 @@ export default async function handler(req, res) {
         (ORDEM_METODOS[a.metodo] ?? 99) - (ORDEM_METODOS[b.metodo] ?? 99)
       );
 
+    const skillScores = pareados
+      .map((p) => ({
+        metodo: p.metodo,
+        horizonteH: Number(p.horizonte_h),
+        ...skillScore({
+          n: p.n,
+          somaErro2Metodo: num(p.soma_erro2_metodo),
+          somaErro2Persistencia: num(p.soma_erro2_persistencia),
+        }),
+      }))
+      .sort((a, b) =>
+        a.horizonteH - b.horizonteH ||
+        (ORDEM_METODOS[a.metodo] ?? 99) - (ORDEM_METODOS[b.metodo] ?? 99)
+      );
+
     res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=1800');
     return res.status(200).json({
       totalAvaliadas: porGrupo.reduce((soma, g) => soma + g.n, 0),
@@ -93,6 +165,7 @@ export default async function handler(req, res) {
       ultimaAvaliadaEm,
       horizontes: [...new Set(porGrupo.map((g) => g.horizonteH))],
       grupos: porGrupo,
+      skillScores,
     });
   } catch (erro) {
     console.error('Falha ao agregar as projeções de nível:', erro);

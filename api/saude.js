@@ -31,6 +31,8 @@ export default async function handler(req, res) {
           COALESCE(SUM(leituras_inseridas), 0)::int            AS leituras_inseridas,
           COALESCE(SUM(leituras_ana_inseridas), 0)::int        AS leituras_ana_inseridas,
           COALESCE(SUM(alertas_criados), 0)::int               AS alertas_criados,
+          COALESCE(SUM(projecoes_gravadas), 0)::int            AS projecoes_gravadas,
+          COUNT(*) FILTER (WHERE erro_projecoes IS NOT NULL)::int AS projecoes_com_erro,
           ROUND(AVG(duracao_ms))::int                          AS duracao_media_ms,
           MAX(duracao_ms)::int                                 AS duracao_max_ms
         FROM coletas
@@ -68,6 +70,15 @@ export default async function handler(req, res) {
         leiturasInseridas: linha.leituras_inseridas,
         leiturasAnaInseridas: linha.leituras_ana_inseridas,
         alertasCriados: linha.alertas_criados,
+        // Projeções de nível (ver projecoes_nivel em schema.sql). São
+        // horárias, então 3 de cada 4 rodadas gravam 0 legitimamente — é a
+        // soma da janela que diz se está saudável (~112/h, ou seja, ~2,7 mil
+        // em 24h com as 14 estações). Zero na janela inteira, com coletas
+        // acontecendo, significa que a instrumentação parou: como ela roda
+        // em try/catch pra não derrubar a coleta, este contador (e o
+        // projecoesComErro ao lado) é o único lugar onde isso aparece.
+        projecoesGravadas: linha.projecoes_gravadas,
+        projecoesComErro: linha.projecoes_com_erro,
         duracaoMediaMs: linha.duracao_media_ms,
         duracaoMaxMs: linha.duracao_max_ms,
         maiorLacunaMin: maiorLacunaMin,
@@ -87,6 +98,15 @@ export default async function handler(req, res) {
       FROM coletas WHERE NOT feed_ok ORDER BY iniciada_em DESC LIMIT 1
     `;
 
+    // Mesmo tratamento que a falha de feed já tinha: sem a mensagem em
+    // algum lugar visível, um erro engolido pelo try/catch das projeções
+    // (tabela faltando, coluna nova sem migração) só apareceria pra quem
+    // fosse ler o log do Vercel — ou seja, nunca.
+    const [ultimaFalhaProjecoes] = await sql`
+      SELECT iniciada_em, erro_projecoes
+      FROM coletas WHERE erro_projecoes IS NOT NULL ORDER BY iniciada_em DESC LIMIT 1
+    `;
+
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
     return res.status(200).json({
       intervaloEsperadoMin: INTERVALO_ESPERADO_MIN,
@@ -100,6 +120,10 @@ export default async function handler(req, res) {
       ultimaFalhaFeed: !ultimaFalha ? null : {
         iniciadaEm: ultimaFalha.iniciada_em,
         erro: ultimaFalha.erro_feed,
+      },
+      ultimaFalhaProjecoes: !ultimaFalhaProjecoes ? null : {
+        iniciadaEm: ultimaFalhaProjecoes.iniciada_em,
+        erro: ultimaFalhaProjecoes.erro_projecoes,
       },
       janelas,
     });
