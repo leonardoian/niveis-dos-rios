@@ -139,6 +139,72 @@ CREATE INDEX IF NOT EXISTS idx_estimativas_cota_pendentes
 CREATE INDEX IF NOT EXISTS idx_estimativas_cota_avaliadas
     ON estimativas_cota (avaliado_em) WHERE avaliado_em IS NOT NULL;
 
+-- Projeções de NÍVEL por horizonte fixo (6/12/24/48h).
+--
+-- Objeto diferente do de estimativas_cota, e é essa diferença que justifica
+-- a tabela nova: lá o previsto é um TEMPO (quando o nível cruza um valor),
+-- aqui é um NÍVEL (quantos metros a estação vai marcar daqui a X horas). A
+-- literatura de previsão fluvial — inclusive as previsões emergenciais do
+-- Guaíba publicadas na RBRH 30 (2025) — avalia a segunda coisa: erro de
+-- nível por horizonte fixo, com RMSE/NSE. Sem registrar isso, nada do que
+-- este sistema produz é comparável com esses trabalhos.
+--
+-- Três métodos gravados lado a lado pro mesmo instante e horizonte:
+--   persistencia — o nível fica onde está. É a REFERÊNCIA (a mesma que a
+--                  RBRH 30 registra faltar): método que não supera a
+--                  persistência não está agregando informação nenhuma.
+--   tendencia    — extrapolação linear pela velocidade medida em cm/h, a
+--                  mesma conta de calcularEtaCota (lib/calculo.js).
+--   curva        — previsoes.nivel_estimado_m do dia do alvo (curva
+--                  empírica vazão→nível, ver curvas_nivel). Só existe
+--                  quando a estação tem curva confiável e a vazão caiu na
+--                  faixa ajustada, então tem N bem menor que os outros dois
+--                  — de propósito, e a análise precisa levar isso em conta.
+--
+-- E, diferente de estimativas_cota, aqui NÃO existe "uma em aberto por
+-- vez": grava em TODA coleta. Lá a trava evitava dezenas de linhas
+-- redundantes descrevendo o mesmo evento; aqui a série densa é o dado — a
+-- métrica por horizonte precisa de N, e cada rodada é uma emissão legítima
+-- de previsão (a mesma lógica de quem avalia previsão operacional).
+CREATE TABLE IF NOT EXISTS projecoes_nivel (
+    id               BIGSERIAL PRIMARY KEY,
+    slug             TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
+    metodo           TEXT NOT NULL,               -- persistencia | tendencia | curva
+    horizonte_h      SMALLINT NOT NULL,           -- 6 | 12 | 24 | 48
+    gerada_em        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    nivel_no_calculo NUMERIC(7,2) NOT NULL,       -- último nível medido no momento da projeção
+    velocidade_cm_h  NUMERIC(8,2),                -- ritmo medido na hora; 'persistencia' ignora no cálculo, mas fica gravado pra dar pra estratificar o erro por ritmo do rio depois
+    nivel_previsto   NUMERIC(7,2) NOT NULL,
+    alvo_em          TIMESTAMPTZ NOT NULL,        -- gerada_em + horizonte_h
+    avaliada_em      TIMESTAMPTZ,                 -- NULL = ainda em aberto
+    nivel_real       NUMERIC(7,2),                -- leitura medida mais próxima de alvo_em (±30 min); NULL = não houve leitura na janela
+    -- nivel_real − nivel_previsto, COM SINAL preservado: positivo = o rio
+    -- estava mais alto do que a projeção dizia (previu baixo demais).
+    -- Guardar o sinal é o que separa erro (magnitude) de viés (tendência
+    -- sistemática) — um método que erra ±30 cm pros dois lados é coisa
+    -- diferente de um que erra 30 cm sempre pra baixo, e só o segundo dá
+    -- pra corrigir. Mesmo raciocínio do vies_m em /api/curva.
+    erro_m           NUMERIC(7,3),
+    CONSTRAINT projecoes_nivel_unicas UNIQUE (slug, metodo, horizonte_h, gerada_em)
+);
+
+-- Idempotente: bancos que criaram a tabela antes destas colunas existirem.
+ALTER TABLE projecoes_nivel ADD COLUMN IF NOT EXISTS velocidade_cm_h NUMERIC(8,2);
+ALTER TABLE projecoes_nivel ADD COLUMN IF NOT EXISTS avaliada_em TIMESTAMPTZ;
+ALTER TABLE projecoes_nivel ADD COLUMN IF NOT EXISTS nivel_real NUMERIC(7,2);
+ALTER TABLE projecoes_nivel ADD COLUMN IF NOT EXISTS erro_m NUMERIC(7,3);
+
+-- Espelham os índices de estimativas_cota (um parcial pras pendentes, outro
+-- pras avaliadas), adaptados às duas únicas consultas que existem sobre
+-- esta tabela: a avaliação varre as pendentes já vencidas (por alvo_em), e
+-- /api/projecoes agrega as avaliadas por metodo × horizonte_h. Aqui os
+-- parciais importam mais que lá: esta tabela cresce ~100 linhas por rodada
+-- (14 estações × 4 horizontes × 2-3 métodos), não uma por evento.
+CREATE INDEX IF NOT EXISTS idx_projecoes_nivel_pendentes
+    ON projecoes_nivel (alvo_em) WHERE avaliada_em IS NULL;
+CREATE INDEX IF NOT EXISTS idx_projecoes_nivel_avaliadas
+    ON projecoes_nivel (metodo, horizonte_h) WHERE avaliada_em IS NOT NULL;
+
 -- Inscrições de notificação push (Web Push API — ver lib/push.js). Uma
 -- linha por navegador/dispositivo inscrito. `slugs` NULL = todas as
 -- estações (default); um array restringe às escolhidas. endpoint é único

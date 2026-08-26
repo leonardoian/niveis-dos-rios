@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h, calcularEtaCota, avaliarEstimativa, calcularSubidaSustentada } from '../lib/calculo.js';
+import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h, calcularEtaCota, avaliarEstimativa, calcularSubidaSustentada, projetarNivel, somarProjecoes, metricasProjecao } from '../lib/calculo.js';
 
 test('classificar: abaixo de 60% da cota é normal', () => {
   assert.equal(classificar(5, 10), 'normal');
@@ -245,4 +245,196 @@ test('calcularSubidaSustentada: menos de 2 leituras ou instante repetido retorna
 
 test('calcularSubidaSustentada: ordena internamente', () => {
   assert.equal(calcularSubidaSustentada([leitura(3, 5.6), leitura(0, 5.0)], 3), 20);
+});
+
+// ---------------------------------------------------------------------
+// projetarNivel — nível previsto por horizonte fixo (ver projecoes_nivel
+// em schema.sql). O que mais importa nestes testes é o que a função NÃO
+// faz: não suaviza, não trava em zero, não trata caso especial. É o que
+// mantém a persistência utilizável como linha de base.
+// ---------------------------------------------------------------------
+
+test('projetarNivel: persistência devolve o nível atual, em qualquer horizonte', () => {
+  for (const horizonteH of [6, 12, 24, 48]) {
+    assert.equal(projetarNivel({ nivel: 12.34, velocidadeCmH: 0, horizonteH, metodo: 'persistencia' }), 12.34);
+  }
+});
+
+test('projetarNivel: persistência ignora a velocidade (é o ponto da linha de base)', () => {
+  const base = { nivel: 12.34, horizonteH: 24, metodo: 'persistencia' };
+  assert.equal(projetarNivel({ ...base, velocidadeCmH: 50 }), 12.34);
+  assert.equal(projetarNivel({ ...base, velocidadeCmH: -50 }), 12.34);
+  // Inclusive sem velocidade nenhuma: persistência não precisa dela.
+  assert.equal(projetarNivel({ ...base, velocidadeCmH: null }), 12.34);
+});
+
+test('projetarNivel: tendência extrapola linear — 10 cm/h por 6h sobe 60 cm', () => {
+  assert.equal(projetarNivel({ nivel: 12.00, velocidadeCmH: 10, horizonteH: 6, metodo: 'tendencia' }), 12.6);
+});
+
+test('projetarNivel: tendência com velocidade zero cai no mesmo valor da persistência', () => {
+  const args = { nivel: 12.34, velocidadeCmH: 0, horizonteH: 24 };
+  assert.equal(
+    projetarNivel({ ...args, metodo: 'tendencia' }),
+    projetarNivel({ ...args, metodo: 'persistencia' })
+  );
+});
+
+test('projetarNivel: velocidade negativa projeta descida', () => {
+  assert.equal(projetarNivel({ nivel: 12.00, velocidadeCmH: -10, horizonteH: 12, metodo: 'tendencia' }), 10.8);
+});
+
+test('projetarNivel: descida longa pode projetar nível negativo — sem clamp, de propósito', () => {
+  // 20 cm/h por 48h = 9,6 m de queda sobre um rio a 2 m. É absurdo, e tem
+  // que aparecer assim: travar em zero esconderia o erro da extrapolação
+  // dentro da própria projeção em vez de deixá-lo chegar na métrica.
+  assert.equal(projetarNivel({ nivel: 2.00, velocidadeCmH: -20, horizonteH: 48, metodo: 'tendencia' }), -7.6);
+});
+
+test('projetarNivel: tendência sem velocidade utilizável retorna null', () => {
+  const base = { nivel: 12.00, horizonteH: 24, metodo: 'tendencia' };
+  assert.equal(projetarNivel({ ...base, velocidadeCmH: null }), null);
+  assert.equal(projetarNivel({ ...base, velocidadeCmH: undefined }), null);
+  assert.equal(projetarNivel({ ...base, velocidadeCmH: NaN }), null);
+});
+
+test('projetarNivel: sem nível, horizonte não positivo ou método desconhecido retorna null', () => {
+  assert.equal(projetarNivel({ nivel: null, velocidadeCmH: 5, horizonteH: 24, metodo: 'persistencia' }), null);
+  assert.equal(projetarNivel({ nivel: 12, velocidadeCmH: 5, horizonteH: 0, metodo: 'persistencia' }), null);
+  assert.equal(projetarNivel({ nivel: 12, velocidadeCmH: 5, horizonteH: -6, metodo: 'tendencia' }), null);
+  assert.equal(projetarNivel({ nivel: 12, velocidadeCmH: 5, horizonteH: 24, metodo: 'media_movel' }), null);
+});
+
+test('projetarNivel: curva não é calculada aqui (vem de previsoes.nivel_estimado_m)', () => {
+  assert.equal(projetarNivel({ nivel: 12, velocidadeCmH: 5, horizonteH: 24, metodo: 'curva' }), null);
+});
+
+// ---------------------------------------------------------------------
+// Métricas de erro — somarProjecoes é o espelho em JS do GROUP BY de
+// /api/projecoes, metricasProjecao é a derivação que a rota usa em cima
+// das somas que o Postgres devolve.
+// ---------------------------------------------------------------------
+
+const metricasDe = (pares) => metricasProjecao(somarProjecoes(pares));
+
+test('metricasProjecao: previsão perfeita zera MAE, RMSE e viés, e dá NSE 1', () => {
+  const m = metricasDe([
+    { nivelPrevisto: 10, nivelReal: 10 },
+    { nivelPrevisto: 11, nivelReal: 11 },
+    { nivelPrevisto: 12, nivelReal: 12 },
+  ]);
+  assert.equal(m.n, 3);
+  assert.equal(m.maeM, 0);
+  assert.equal(m.rmseM, 0);
+  assert.equal(m.viesM, 0);
+  assert.equal(m.nse, 1);
+});
+
+test('metricasProjecao: valores conferidos na mão', () => {
+  // erros (real − previsto): +0,5 / −1,0 / 0 / −0,5
+  const m = metricasDe([
+    { nivelPrevisto: 10.0, nivelReal: 10.5 },
+    { nivelPrevisto: 11.0, nivelReal: 10.0 },
+    { nivelPrevisto: 12.0, nivelReal: 12.0 },
+    { nivelPrevisto: 13.0, nivelReal: 12.5 },
+  ]);
+  assert.equal(m.n, 4);
+  assert.equal(m.maeM, 0.5);                              // (0,5+1+0+0,5)/4
+  assert.equal(m.rmseM, Number(Math.sqrt(0.375).toFixed(3))); // √((0,25+1+0+0,25)/4)
+  assert.equal(m.viesM, -0.25);                           // (0,5−1+0−0,5)/4
+  assert.equal(m.nse, 0.647);                             // 1 − 1,5/4,25
+  assert.ok(m.rmseM > m.maeM, 'RMSE deve punir o erro grande mais que o MAE');
+});
+
+test('metricasProjecao: viés guarda o sinal — previsão sempre baixa dá viés positivo', () => {
+  const m = metricasDe([
+    { nivelPrevisto: 10.0, nivelReal: 10.2 },
+    { nivelPrevisto: 11.0, nivelReal: 11.2 },
+    { nivelPrevisto: 12.0, nivelReal: 12.2 },
+  ]);
+  assert.equal(m.viesM, 0.2);
+  assert.equal(m.maeM, 0.2); // mesma magnitude: erro inteiramente sistemático
+});
+
+test('metricasProjecao: viés some quando o erro é simétrico, mas o MAE não', () => {
+  const m = metricasDe([
+    { nivelPrevisto: 10.0, nivelReal: 10.3 },
+    { nivelPrevisto: 11.0, nivelReal: 10.7 },
+  ]);
+  assert.equal(m.viesM, 0);
+  assert.equal(m.maeM, 0.3);
+});
+
+test('metricasProjecao: prever sempre a média das observações dá NSE 0', () => {
+  // É a definição do NSE: 0 = tão bom quanto ter chutado a média do período.
+  const m = metricasDe([
+    { nivelPrevisto: 11.5, nivelReal: 10 },
+    { nivelPrevisto: 11.5, nivelReal: 11 },
+    { nivelPrevisto: 11.5, nivelReal: 12 },
+    { nivelPrevisto: 11.5, nivelReal: 13 },
+  ]);
+  assert.equal(m.nse, 0);
+});
+
+test('metricasProjecao: previsão pior que a média das observações dá NSE negativo', () => {
+  const m = metricasDe([
+    { nivelPrevisto: 20, nivelReal: 10 },
+    { nivelPrevisto: 2, nivelReal: 11 },
+    { nivelPrevisto: 20, nivelReal: 12 },
+    { nivelPrevisto: 2, nivelReal: 13 },
+  ]);
+  assert.ok(m.nse < 0, `NSE deveria ser negativo, veio ${m.nse}`);
+});
+
+test('metricasProjecao: observações sem variação deixam o NSE NULL (indefinido)', () => {
+  // Rio parado no mesmo nível: a variância das observações é zero e o NSE
+  // não existe. Devolver 0 ou 1 aqui inventaria um veredito.
+  const m = metricasDe([
+    { nivelPrevisto: 10.1, nivelReal: 10 },
+    { nivelPrevisto: 9.9, nivelReal: 10 },
+  ]);
+  assert.equal(m.nse, null);
+  assert.equal(m.maeM, 0.1); // as outras métricas continuam válidas
+});
+
+test('somarProjecoes: descarta projeção sem leitura no alvo (erro_m NULL no banco)', () => {
+  const somas = somarProjecoes([
+    { nivelPrevisto: 10, nivelReal: 10.5 },
+    { nivelPrevisto: 11, nivelReal: null },   // não houve leitura em ±30 min
+    { nivelPrevisto: 12, nivelReal: undefined },
+  ]);
+  assert.equal(somas.n, 1);
+  assert.equal(metricasProjecao(somas).maeM, 0.5);
+});
+
+test('metricasProjecao: grupo vazio devolve n 0 e métricas NULL, sem quebrar', () => {
+  const m = metricasDe([]);
+  assert.deepEqual(m, { n: 0, maeM: null, rmseM: null, viesM: null, nse: null });
+  assert.deepEqual(metricasProjecao(null), { n: 0, maeM: null, rmseM: null, viesM: null, nse: null });
+});
+
+test('agregação por método × horizonte: a comparação que /api/projecoes faz', () => {
+  // Rio subindo 10 cm/h de verdade, projeções de 24h emitidas em 4 rodadas.
+  // Persistência erra os 2,40 m inteiros da subida; a tendência acerta.
+  const subida = [
+    { nivel: 10.0, real: 12.4 },
+    { nivel: 10.5, real: 12.9 },
+    { nivel: 11.0, real: 13.4 },
+    { nivel: 11.5, real: 13.9 },
+  ];
+  const porMetodo = (metodo) =>
+    metricasDe(subida.map((r) => ({
+      nivelPrevisto: projetarNivel({ nivel: r.nivel, velocidadeCmH: 10, horizonteH: 24, metodo }),
+      nivelReal: r.real,
+    })));
+
+  const persistencia = porMetodo('persistencia');
+  const tendencia = porMetodo('tendencia');
+
+  assert.equal(persistencia.n, 4);
+  assert.equal(persistencia.rmseM, 2.4);
+  assert.equal(persistencia.viesM, 2.4);  // previu baixo demais, sistematicamente
+  assert.equal(tendencia.rmseM, 0);
+  assert.equal(tendencia.nse, 1);
+  assert.ok(tendencia.rmseM < persistencia.rmseM);
 });
