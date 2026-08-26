@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h, calcularEtaCota, avaliarEstimativa, calcularSubidaSustentada, projetarNivel, somarProjecoes, metricasProjecao } from '../lib/calculo.js';
+import { classificar, calcularVelocidade, calcularFrescor, calcularVariacao24h, calcularEtaCota, avaliarEstimativa, calcularSubidaSustentada, projetarNivel, somarProjecoes, metricasProjecao, skillScore } from '../lib/calculo.js';
 
 test('classificar: abaixo de 60% da cota é normal', () => {
   assert.equal(classificar(5, 10), 'normal');
@@ -437,4 +437,92 @@ test('agregação por método × horizonte: a comparação que /api/projecoes fa
   assert.equal(tendencia.rmseM, 0);
   assert.equal(tendencia.nse, 1);
   assert.ok(tendencia.rmseM < persistencia.rmseM);
+});
+
+// ---------------------------------------------------------------------
+// skillScore — a comparação contra a persistência, que é o resultado
+// principal do trabalho. Positivo = o método ganha da linha de base.
+// ---------------------------------------------------------------------
+
+test('skillScore: método com metade do erro quadrático da persistência dá SS positivo', () => {
+  // MSE do método 0,25 contra 1,00 da persistência → 1 − 0,25 = 0,75.
+  const r = skillScore({ n: 4, somaErro2Metodo: 1, somaErro2Persistencia: 4 });
+  assert.equal(r.nPareado, 4);
+  assert.equal(r.mseMetodo, 0.25);
+  assert.equal(r.msePersistencia, 1);
+  assert.equal(r.ss, 0.75);
+});
+
+test('skillScore: empate com a persistência dá SS exatamente zero', () => {
+  const r = skillScore({ n: 10, somaErro2Metodo: 5, somaErro2Persistencia: 5 });
+  assert.equal(r.ss, 0);
+});
+
+test('skillScore: método pior que a persistência dá SS negativo', () => {
+  // O dobro do erro quadrático → 1 − 2 = −1. É o veredito de "extrapolar
+  // aqui não acrescenta nada", que é o que o horizonte longo deve mostrar.
+  const r = skillScore({ n: 4, somaErro2Metodo: 8, somaErro2Persistencia: 4 });
+  assert.equal(r.ss, -1);
+});
+
+test('skillScore: persistência perfeita (MSE 0) deixa o SS NULL, sem divisão por zero', () => {
+  const r = skillScore({ n: 6, somaErro2Metodo: 3, somaErro2Persistencia: 0 });
+  assert.equal(r.msePersistencia, 0);
+  assert.equal(r.ss, null);
+  assert.equal(r.mseMetodo, 0.5); // as somas continuam informando
+});
+
+test('skillScore: sem par nenhum devolve tudo NULL', () => {
+  assert.deepEqual(skillScore({ n: 0, somaErro2Metodo: 0, somaErro2Persistencia: 0 }),
+    { nPareado: 0, mseMetodo: null, msePersistencia: null, ss: null });
+  assert.deepEqual(skillScore(),
+    { nPareado: 0, mseMetodo: null, msePersistencia: null, ss: null });
+});
+
+test('skillScore: rio subindo em ritmo constante — a tendência ganha da persistência', () => {
+  // Mesmos alvos nos dois métodos (é o pareamento que /api/projecoes faz no
+  // SQL): a persistência erra a subida inteira, a tendência acerta.
+  const alvos = [
+    { nivel: 10.0, real: 12.4 },
+    { nivel: 10.5, real: 12.9 },
+    { nivel: 11.0, real: 13.4 },
+  ];
+  const somasDe = (metodo) => somarProjecoes(alvos.map((a) => ({
+    nivelPrevisto: projetarNivel({ nivel: a.nivel, velocidadeCmH: 10, horizonteH: 24, metodo }),
+    nivelReal: a.real,
+  })));
+
+  const persistencia = somasDe('persistencia');
+  const tendencia = somasDe('tendencia');
+  const r = skillScore({
+    n: persistencia.n,
+    somaErro2Metodo: tendencia.somaErro2,
+    somaErro2Persistencia: persistencia.somaErro2,
+  });
+
+  assert.equal(r.nPareado, 3);
+  assert.equal(r.ss, 1); // erro zero da tendência contra erro grande da base
+});
+
+test('skillScore: rio parado — extrapolar só atrapalha, SS fica negativo', () => {
+  // Velocidade de 10 cm/h medida entre duas leituras, mas o rio ficou onde
+  // estava. É o caso que o README documenta: ruído de instrumento virando
+  // tendência. A persistência acerta em cheio; a tendência erra 2,40 m.
+  const alvos = [
+    { nivel: 10.0, real: 10.05 },
+    { nivel: 10.0, real: 9.95 },
+  ];
+  const somasDe = (metodo) => somarProjecoes(alvos.map((a) => ({
+    nivelPrevisto: projetarNivel({ nivel: a.nivel, velocidadeCmH: 10, horizonteH: 24, metodo }),
+    nivelReal: a.real,
+  })));
+
+  const persistencia = somasDe('persistencia');
+  const r = skillScore({
+    n: persistencia.n,
+    somaErro2Metodo: somasDe('tendencia').somaErro2,
+    somaErro2Persistencia: persistencia.somaErro2,
+  });
+
+  assert.ok(r.ss < 0, `SS deveria ser negativo, veio ${r.ss}`);
 });

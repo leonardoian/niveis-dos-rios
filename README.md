@@ -284,10 +284,10 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação (inclui `chuvaAna`, chuva medida ANA na mesma janela) |
 | `GET /api/alertas`                      | últimos 30 alertas — nível (`tipo='nivel'`) e chuva acumulada (`tipo='chuva'`) misturados por data |
 | `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
-| `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha |
+| `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha, projeções gravadas |
 | `GET /api/divergencia?dias=30`          | diferença entre nivelguaiba e ANA por estação (mediana, oscilação, deriva) |
 | `GET /api/curva?dias=90`                | erro da previsão de nível contra o nível medido, por estação |
-| `GET /api/projecoes`                    | erro das projeções de nível por método × horizonte (n, MAE, RMSE, viés, NSE) |
+| `GET /api/projecoes`                    | erro das projeções de nível por método × horizonte (n, MAE, RMSE, viés, NSE) + skill score pareado contra a persistência |
 | `GET /api/coletar`                      | força uma coleta (requer o header) — 502 se o feed de nível estiver fora, com o corpo dizendo o que as outras fontes conseguiram fazer |
 | `POST /api/push`                        | inscreve/atualiza a notificação push (`{endpoint, keys:{p256dh,auth}, slugs?}` — `slugs` ausente = todas) |
 | `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
@@ -581,14 +581,22 @@ passam a valer a pena. Tabela `projecoes_nivel`, `registrarProjecoesNivel`/
   alvo — ver a seção da curva). A `curva` só existe quando a estação tem curva
   confiável e a vazão caiu na faixa ajustada, então tem N bem menor que os
   outros dois; isso é esperado e precisa entrar na leitura do resultado.
-- **Grava sempre, em toda rodada** — aqui **não** existe a trava de "uma em
-  aberto por vez" da `estimativas_cota`. Lá a trava evitava dezenas de linhas
-  redundantes descrevendo o mesmo evento de subida; aqui a série densa **é** o
-  dado: métrica por horizonte precisa de N, e cada rodada é uma emissão
-  legítima de previsão, como se avalia previsão operacional. São ~112 linhas
-  por rodada (14 estações × 4 horizontes × 2 métodos, mais a `curva` quando
-  existe), por isso tanto a gravação quanto a avaliação são comandos únicos em
-  bulk, não um `INSERT`/`UPDATE` por linha.
+- **Cadência horária**, não a cada coleta: uma emissão por hora por estação,
+  ~112 linhas (14 estações × 4 horizontes × 2 métodos, mais a `curva` quando
+  existe). A coleta continua rodando a cada 15 min — só a gravação das
+  projeções é horária. O motivo é estatístico: projeções emitidas a cada 15
+  min são quase idênticas entre si e seus erros são fortemente
+  autocorrelacionados, então contar as quatro da hora como quatro observações
+  independentes **inflaria artificialmente o n** da análise (e estreitaria
+  qualquer intervalo de confiança calculado em cima). De quebra, o volume cai
+  de ~10,7 mil para ~2,7 mil linhas/dia. A trava é determinística e
+  idempotente — depende só de `date_trunc('hour', gerada_em)`, não de estado
+  guardado —, então rodar a coleta cinco vezes na mesma hora grava uma vez, e
+  uma hora perdida fica perdida (compensar depois seria backfill). Também
+  **não** é a trava de "uma em aberto por vez" da `estimativas_cota`: aqui não
+  se espera a projeção anterior ser avaliada — uma de 48h bloquearia todas as
+  outras por dois dias. Tanto a gravação quanto a avaliação são comandos
+  únicos em bulk, não um `INSERT`/`UPDATE` por linha.
 - **Avaliação:** quando `alvo_em` + 30 min já passou, busca em `leituras` a
   medição mais próxima de `alvo_em` dentro de ±30 min (a coleta roda a cada 15
   min, então quase sempre existe uma). Sem leitura na janela, a linha é
@@ -605,12 +613,46 @@ passam a valer a pena. Tabela `projecoes_nivel`, `registrarProjecoesNivel`/
   *antes* do fato: gerar linhas a partir do histórico produziria números
   bonitos e cientificamente vazios (o "previsor" teria visto o futuro na hora
   de escolher o que prever). Por isso a série começa vazia e vai enchendo a
-  ~112 linhas por rodada — o N útil aparece em dias, não em minutos.
+  ~112 linhas por hora — o N útil aparece em dias, não em minutos.
+- **O resultado é o skill score.** `GET /api/projecoes` devolve, por horizonte
+  e para cada método que não seja a referência:
+
+  ```
+  SS = 1 − MSE(metodo) / MSE(persistencia)
+  ```
+
+  `SS > 0` = o método ganha da persistência; `SS ≤ 0` = extrapolar não
+  acrescentou nada e a linha de base burra bastava. **O horizonte em que o SS
+  cruza o zero é a resposta da pergunta do trabalho.** A referência é a
+  persistência, e não a média das observações (que é o denominador do NSE),
+  porque em previsão de curto prazo bater a média do período é fácil demais
+  para provar qualquer coisa: num rio, "o nível daqui a 6h é o de agora" já
+  acerta quase tudo.
+- **A comparação é pareada.** O SS só cruza alvos avaliados nos **dois**
+  métodos — chave `(slug, horizonte_h, alvo_em)`, com o `n` pareado devolvido
+  junto. Não é preciosismo: a `curva` só existe nos dias em que a estação tem
+  previsão de nível utilizável, que tendem a ser os dias de vazão alta —
+  justamente quando a persistência erra mais. Comparar o MSE dela (medido só
+  nesses dias) contra o MSE da persistência (medido em todos) mediria a
+  diferença entre os dias, não entre os métodos. Num teste com dados
+  sintéticos a diferença foi de `SS = 0,56` pareado contra `0,20` sem parear.
+  `MSE(persistencia) = 0` devolve `SS` NULL, nunca divisão por zero.
 - **Como ler o NSE da persistência:** em série de nível de rio a
   autocorrelação é altíssima, então a persistência costuma dar NSE alto mesmo
   em horizonte longo. Isso é uma crítica conhecida da métrica, não um mérito
   do método — é justamente por isso que `/api/projecoes` devolve os quatro
   números (n, MAE, RMSE, viés, NSE) lado a lado, em vez de um só.
+- **A instrumentação é observável.** O registro das projeções roda em
+  `try/catch` — é instrumentação, não pode derrubar a coleta de nível, que é o
+  que o painel e os alertas usam. Só que engolir o erro em silêncio criava
+  outro problema: com a tabela faltando em produção (schema não aplicado
+  depois do deploy), a coleta seguiria verde e `projecoes_nivel` ficaria vazia
+  sem nada denunciar. Por isso `coletas` ganhou `projecoes_gravadas` e
+  `erro_projecoes`, e `/api/saude` expõe os dois nas janelas de 24h e 7d
+  (`projecoesGravadas`, `projecoesComErro`, `ultimaFalhaProjecoes`). Atenção
+  ao ler: `projecoes_gravadas = 0` numa rodada isolada é normal — 3 de cada 4
+  coletas não abrem hora nova. É a **soma da janela** (~2,7 mil em 24h) que
+  diz se está saudável.
 - A rota **não** tem parâmetro de janela, ao contrário de `/api/curva` e
   `/api/divergencia`: aquelas servem uma página que mostra "como está agora",
   esta serve uma análise, e métrica sobre janela móvel muda de valor todo dia
@@ -1010,6 +1052,13 @@ agendado, porque o GitHub Actions atrasa alguns minutos rotineiramente.
 ausência de feature opcional não é falha, e some da conta em vez de puxar a
 taxa pra baixo.
 
+A resposta traz também `projecoesGravadas` e `projecoesComErro` por janela,
+mais `ultimaFalhaProjecoes` — o registro das projeções de nível roda em
+`try/catch` (não pode derrubar a coleta), e sem esses contadores uma falha
+permanente ali seria invisível: a coleta seguiria verde com a tabela vazia.
+Como as projeções são horárias e a coleta é a cada 15 min, `0` numa rodada
+isolada é rotina; o que importa é a soma da janela (~2,7 mil em 24h).
+
 **2. As duas fontes de nível concordam?** (`GET /api/divergencia`) — essa é a
 razão de `leituras_ana` existir. O schema sempre disse que a tabela servia
 "pra comparar as duas fontes ao longo do tempo antes de considerar qualquer
@@ -1208,7 +1257,8 @@ npm test
 
 Usa o test runner nativo do Node (`node --test`), sem dependência nova de
 teste. Cobre as funções puras de `lib/calculo.js` (classificar, cm/h,
-frescor, projeção de nível e as métricas de erro dela), `lib/feed.js` (parse do feed) — inclusive o caso do bug real que
+frescor, projeção de nível, as métricas de erro dela e o skill score),
+`lib/feed.js` (parse do feed) — inclusive o caso do bug real que
 já encontramos (nível sem casa decimal, tipo "1 metros") — e `lib/push.js`
 (payload da notificação, detecção de inscrição expirada). Não testa rotas
 HTTP nem acesso ao banco — essas dependem de `DATABASE_URL` e são
