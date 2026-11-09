@@ -31,12 +31,18 @@ import { metricasProjecao, skillScore } from '../lib/calculo.js';
 //                   O horizonte em que o SS cruza o zero é a resposta da
 //                   pergunta do TCC.
 //
+// E as mesmas duas coisas estratificadas por sentido da variação no momento
+// da emissão (`gruposPorSentido`, `skillScoresPorSentido`: subindo /
+// descendo / estavel / indefinido), pra comparar o desempenho com o rio
+// subindo e descendo — ver o comentário das consultas abaixo.
+//
 // Sem parâmetro de janela, de propósito: as outras rotas de avaliação
 // recortam por dias porque servem uma página que mostra "como está agora";
 // esta serve uma análise, e uma métrica calculada sobre uma janela móvel
 // muda de valor a cada dia sem que nada tenha mudado no método. O recorte,
 // quando for preciso, se faz sobre a tabela.
 const ORDEM_METODOS = { persistencia: 0, tendencia: 1, curva: 2 };
+const ORDEM_SENTIDOS = { subindo: 0, descendo: 1, estavel: 2, indefinido: 3 };
 
 export default async function handler(req, res) {
   try {
@@ -117,44 +123,137 @@ export default async function handler(req, res) {
       ORDER BY a.metodo, a.horizonte_h
     `;
 
+    // ESTRATIFICAÇÃO POR SENTIDO DA VARIAÇÃO — os mesmos dois agregados de
+    // cima, abertos por subindo/descendo/estavel/indefinido.
+    //
+    // Por quê: a relação cota-vazão é assimétrica entre enchente e vazante
+    // (histerese — USGS SIR 2024-5129), então é esperado que a extrapolação
+    // erre de formas diferentes em cada caso, e um SS único poderia ser a
+    // média de um método que ganha subindo e perde descendo.
+    //
+    // A classe sai do SINAL de velocidade_cm_h, que já é gravada em toda
+    // projeção — nenhuma coluna nova, e nenhum limiar escolhido por nós
+    // (ver classeVariacao em lib/calculo.js, que é o espelho em JS deste
+    // CASE e onde está o porquê de não haver faixa morta). NULL vira
+    // 'indefinido' em vez de sumir, pra que as quatro classes somem o
+    // agregado não estratificado.
+    //
+    // Cuidado ao interpretar: velocidade_cm_h aqui é a INSTANTÂNEA (duas
+    // últimas leituras), a mesma que alimenta a 'tendencia'. A classe diz
+    // "em que sentido a telemetria apontava quando a projeção foi emitida",
+    // não "em que regime hidrológico o rio estava" — com ruído de
+    // instrumento, parte das projeções de um rio parado cai em
+    // subindo/descendo.
+    //
+    // Os agregados não estratificados acima continuam calculados pelas
+    // consultas originais, intocadas: os números que já existiam não podem
+    // mudar só porque uma dimensão nova apareceu.
+    const gruposPorSentido = await sql`
+      SELECT
+        metodo,
+        horizonte_h,
+        CASE
+          WHEN velocidade_cm_h > 0 THEN 'subindo'
+          WHEN velocidade_cm_h < 0 THEN 'descendo'
+          WHEN velocidade_cm_h = 0 THEN 'estavel'
+          ELSE 'indefinido'
+        END                    AS sentido,
+        COUNT(*)::int          AS n,
+        SUM(erro_m)            AS soma_erro,
+        SUM(ABS(erro_m))       AS soma_abs_erro,
+        SUM(erro_m * erro_m)   AS soma_erro2,
+        SUM(nivel_real)        AS soma_real,
+        SUM(nivel_real * nivel_real) AS soma_real2
+      FROM projecoes_nivel
+      WHERE avaliada_em IS NOT NULL
+        AND erro_m IS NOT NULL
+      GROUP BY 1, 2, 3
+      ORDER BY 1, 2, 3
+    `;
+
+    // Pareamento DENTRO de cada classe: mesma chave (slug, horizonte_h,
+    // alvo_em) de antes, mais a exigência de que os dois lados do par
+    // estejam na mesma classe. Por construção já estão — as linhas de uma
+    // mesma emissão gravam a mesma velocidade em todos os métodos —, mas a
+    // condição explícita garante que um SS de 'subindo' nunca compare o
+    // método contra a persistência de um alvo classificado de outro jeito,
+    // mesmo que a gravação um dia mude.
+    const pareadosPorSentido = await sql`
+      WITH avaliadas AS (
+        SELECT slug, metodo, horizonte_h, alvo_em, erro_m,
+          CASE
+            WHEN velocidade_cm_h > 0 THEN 'subindo'
+            WHEN velocidade_cm_h < 0 THEN 'descendo'
+            WHEN velocidade_cm_h = 0 THEN 'estavel'
+            ELSE 'indefinido'
+          END AS sentido
+        FROM projecoes_nivel
+        WHERE avaliada_em IS NOT NULL
+          AND erro_m IS NOT NULL
+      ),
+      referencia AS (
+        SELECT slug, horizonte_h, alvo_em, erro_m, sentido
+        FROM avaliadas
+        WHERE metodo = 'persistencia'
+      )
+      SELECT
+        a.metodo,
+        a.horizonte_h,
+        a.sentido,
+        COUNT(*)::int                AS n,
+        SUM(a.erro_m * a.erro_m)     AS soma_erro2_metodo,
+        SUM(r.erro_m * r.erro_m)     AS soma_erro2_persistencia
+      FROM avaliadas a
+      JOIN referencia r
+        ON r.slug = a.slug
+       AND r.horizonte_h = a.horizonte_h
+       AND r.alvo_em = a.alvo_em
+       AND r.sentido = a.sentido
+      WHERE a.metodo <> 'persistencia'
+      GROUP BY a.metodo, a.horizonte_h, a.sentido
+      ORDER BY a.metodo, a.horizonte_h, a.sentido
+    `;
+
     // SUM() de NUMERIC volta como string no driver da Neon — converte antes
     // de qualquer conta, senão o "+" vira concatenação.
     const num = (v) => (v === null || v === undefined ? 0 : Number(v));
 
-    const porGrupo = grupos
-      .map((g) => ({
-        metodo: g.metodo,
-        horizonteH: Number(g.horizonte_h),
-        ...metricasProjecao({
-          n: g.n,
-          somaErro: num(g.soma_erro),
-          somaAbsErro: num(g.soma_abs_erro),
-          somaErro2: num(g.soma_erro2),
-          somaReal: num(g.soma_real),
-          somaReal2: num(g.soma_real2),
-        }),
-      }))
-      // Persistência primeiro em cada horizonte: é a linha de base contra a
-      // qual as outras se leem, então é a que deve aparecer antes na tabela.
-      .sort((a, b) =>
-        a.horizonteH - b.horizonteH ||
-        (ORDEM_METODOS[a.metodo] ?? 99) - (ORDEM_METODOS[b.metodo] ?? 99)
-      );
+    const montarGrupo = (g) => ({
+      metodo: g.metodo,
+      horizonteH: Number(g.horizonte_h),
+      ...(g.sentido === undefined ? {} : { sentido: g.sentido }),
+      ...metricasProjecao({
+        n: g.n,
+        somaErro: num(g.soma_erro),
+        somaAbsErro: num(g.soma_abs_erro),
+        somaErro2: num(g.soma_erro2),
+        somaReal: num(g.soma_real),
+        somaReal2: num(g.soma_real2),
+      }),
+    });
 
-    const skillScores = pareados
-      .map((p) => ({
-        metodo: p.metodo,
-        horizonteH: Number(p.horizonte_h),
-        ...skillScore({
-          n: p.n,
-          somaErro2Metodo: num(p.soma_erro2_metodo),
-          somaErro2Persistencia: num(p.soma_erro2_persistencia),
-        }),
-      }))
-      .sort((a, b) =>
-        a.horizonteH - b.horizonteH ||
-        (ORDEM_METODOS[a.metodo] ?? 99) - (ORDEM_METODOS[b.metodo] ?? 99)
-      );
+    const montarSkill = (p) => ({
+      metodo: p.metodo,
+      horizonteH: Number(p.horizonte_h),
+      ...(p.sentido === undefined ? {} : { sentido: p.sentido }),
+      ...skillScore({
+        n: p.n,
+        somaErro2Metodo: num(p.soma_erro2_metodo),
+        somaErro2Persistencia: num(p.soma_erro2_persistencia),
+      }),
+    });
+
+    // Persistência primeiro em cada horizonte: é a linha de base contra a
+    // qual as outras se leem, então é a que deve aparecer antes na tabela.
+    // Nas estratificadas, o sentido vem logo depois do horizonte, pra que
+    // as linhas de uma mesma célula (horizonte × sentido) fiquem juntas.
+    const ordenar = (a, b) =>
+      a.horizonteH - b.horizonteH ||
+      (ORDEM_SENTIDOS[a.sentido] ?? 0) - (ORDEM_SENTIDOS[b.sentido] ?? 0) ||
+      (ORDEM_METODOS[a.metodo] ?? 99) - (ORDEM_METODOS[b.metodo] ?? 99);
+
+    const porGrupo = grupos.map(montarGrupo).sort(ordenar);
+    const skillScores = pareados.map(montarSkill).sort(ordenar);
 
     res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=1800');
     return res.status(200).json({
@@ -166,6 +265,12 @@ export default async function handler(req, res) {
       horizontes: [...new Set(porGrupo.map((g) => g.horizonteH))],
       grupos: porGrupo,
       skillScores,
+      // Mesmo formato de grupos/skillScores, com `sentido` a mais. O n de
+      // cada célula vem em `n` (grupos) e `nPareado` (skill score) — com
+      // estratificação, células pequenas aparecem logo, e um SS sobre
+      // poucas dezenas de pares não deve ser lido como resultado.
+      gruposPorSentido: gruposPorSentido.map(montarGrupo).sort(ordenar),
+      skillScoresPorSentido: pareadosPorSentido.map(montarSkill).sort(ordenar),
     });
   } catch (erro) {
     console.error('Falha ao agregar as projeções de nível:', erro);

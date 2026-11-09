@@ -18,26 +18,44 @@ async function carregar() {
   }
 }
 
+function taxaTexto(taxa) {
+  return taxa === null ? '—' : Math.round(taxa * 100) + '%';
+}
+
 function renderizar(dados) {
-  document.getElementById('sub').textContent =
-    `${dados.totalAvaliadas} estimativas avaliadas · ${dados.pendentes} em aberto agora`;
+  // Totais POR VERSÃO no subtítulo: v1 e v2 são populações geradas por
+  // regras diferentes, e um total único esconderia de qual delas vêm as
+  // avaliações.
+  const resumo = dados.porVersao
+    .map((v) => `v${v.versao}: ${v.totalAvaliadas} avaliadas · ${v.pendentes} em aberto`)
+    .join('  |  ');
+  document.getElementById('sub').textContent = resumo || 'Nenhuma estimativa registrada ainda';
 
   const elFaixas = document.getElementById('faixas');
   if (dados.totalAvaliadas === 0) {
     elFaixas.innerHTML = '<p class="vazio">Ainda não há estimativas avaliadas — isso leva tempo, porque cada uma só é avaliada depois que o prazo dela vence.</p>';
   } else {
-    elFaixas.innerHTML = dados.porFaixa.map((f) => `
-      <div class="faixa-card">
-        <span>${f.faixa}</span>
-        <strong>${f.taxa === null ? '—' : Math.round(f.taxa * 100) + '%'}</strong>
-        <small>${f.total === 0 ? 'sem avaliações' : `${f.acertos} de ${f.total} corretas`}</small>
-      </div>
+    elFaixas.innerHTML = dados.porVersao.map((v) => `
+      <section class="versao">
+        <h3>v${v.versao} · ${v.totalAvaliadas === 0
+          ? 'sem avaliações ainda'
+          : `${taxaTexto(v.taxa)} no total (${v.acertos} de ${v.totalAvaliadas})`}</h3>
+        <div class="faixas">
+          ${v.porFaixa.map((f) => `
+            <div class="faixa-card">
+              <span>${f.faixa}</span>
+              <strong>${taxaTexto(f.taxa)}</strong>
+              <small>${f.total === 0 ? 'sem avaliações' : `${f.acertos} de ${f.total} corretas`}</small>
+            </div>
+          `).join('')}
+        </div>
+      </section>
     `).join('');
   }
 
   const corpo = document.getElementById('corpoRecentes');
   if (dados.recentes.length === 0) {
-    corpo.innerHTML = '<tr><td colspan="6" class="vazio">Nenhuma avaliação ainda.</td></tr>';
+    corpo.innerHTML = '<tr><td colspan="7" class="vazio">Nenhuma avaliação ainda.</td></tr>';
     return;
   }
   corpo.innerHTML = dados.recentes.map((r) => {
@@ -45,6 +63,7 @@ function renderizar(dados) {
     const erro = r.erroHoras === null ? '—' : (r.erroHoras >= 0 ? '+' : '') + r.erroHoras.toFixed(1) + 'h';
     return `<tr>
       <td>${r.cidade}/${r.uf}</td>
+      <td>v${r.estimadorVersao}</td>
       <td>${tipo}</td>
       <td>${formatarHoras(r.horasEstimadas)}</td>
       <td>${hora(r.alvoEm)}</td>

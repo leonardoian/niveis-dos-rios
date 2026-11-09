@@ -283,11 +283,11 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/painel`                       | todas as estações, estado atual     |
 | `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação (inclui `chuvaAna`, chuva medida ANA na mesma janela) |
 | `GET /api/alertas`                      | últimos 30 alertas — nível (`tipo='nivel'`) e chuva acumulada (`tipo='chuva'`) misturados por data |
-| `GET /api/acerto`                       | acerto da estimativa de cota, por antecedência |
+| `GET /api/acerto`                       | acerto da estimativa de cota, por versão do estimador × antecedência |
 | `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha, projeções gravadas |
 | `GET /api/divergencia?dias=30`          | diferença entre nivelguaiba e ANA por estação (mediana, oscilação, deriva) |
 | `GET /api/curva?dias=90`                | erro da previsão de nível contra o nível medido, por estação |
-| `GET /api/projecoes`                    | erro das projeções de nível por método × horizonte (n, MAE, RMSE, viés, NSE) + skill score pareado contra a persistência |
+| `GET /api/projecoes`                    | erro das projeções de nível por método × horizonte (n, MAE, RMSE, viés, NSE) + skill score pareado contra a persistência, também estratificados por sentido da variação |
 | `GET /api/coletar`                      | força uma coleta (requer o header) — 502 se o feed de nível estiver fora, com o corpo dizendo o que as outras fontes conseguiram fazer |
 | `POST /api/push`                        | inscreve/atualiza a notificação push (`{endpoint, keys:{p256dh,auth}, slugs?}` — `slugs` ausente = todas) |
 | `DELETE /api/push`                      | cancela a inscrição (`{endpoint}`)  |
@@ -502,13 +502,33 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
     mesmo modelo. Pra estimativa de cota, a gente tem: ela é extrapolação
     da nossa própria telemetria de nível, e depois dá pra conferir contra
     o nível **real** medido depois — validação de verdade.
-  - Cada vez que a coleta roda (`registrarEstimativasCota`), se a estação
-    está subindo/descendo o bastante pra gerar uma estimativa e **não**
-    existe uma "em aberto" ainda pra ela, arquiva: nível e velocidade no
-    momento, `alvo_nivel` (a cota, ou 60% dela), horas estimadas, e o
-    horário-alvo (`alvo_em`). Só uma em aberto por estação por vez — senão
-    uma subida de várias horas geraria uma linha quase idêntica a cada 15
-    min.
+  - Cada vez que a coleta roda (`registrarEstimativasCota`, regra de
+    geração em `planejarEstimativaCota` de `lib/calculo.js`), se a estação
+    está subindo/descendo o bastante pra gerar uma estimativa, arquiva:
+    nível e velocidade no momento, `alvo_nivel` (a cota, ou 60% dela), horas
+    estimadas, o horário-alvo (`alvo_em`) e a versão do estimador
+    (`estimador_versao`).
+  - **Duas versões do estimador**, analisadas separadamente e nunca somadas:
+    - **v1 (ingênua)** — todas as linhas anteriores à coluna existir. Usava a
+      velocidade instantânea das duas últimas leituras (~15 min de
+      intervalo), sem limite de horizonte, e só uma estimativa em aberto por
+      estação. Os três juntos enviesavam a amostra: o ruído de instrumento de
+      15 min era extrapolado por dias, e uma estimativa de 20 dias bloqueava
+      a estação por 20 dias, calando justamente as de horizonte curto — a
+      taxa de acerto da v1 é dominada por horizontes longos por construção.
+      **Não é apagada nem migrada**: é a linha de base ingênua documentada.
+    - **v2** — velocidade **sustentada de 3h** (`calcularSubidaSustentada`, a
+      mesma do alerta de subida); sem cobertura suficiente da janela
+      (estação nova, buraco de coleta), **não estima**. Teto de **48h** de
+      horizonte (limite de validade declarado do método, fixado antes de ver
+      o resultado e igual ao maior horizonte de `projecoes_nivel`). No
+      máximo **uma por (slug, classe) por hora**, como `projecoes_nivel` —
+      várias em aberto pra mesma estação são normais.
+    - O critério de acerto (tolerância e `avaliarEstimativa`) é **o mesmo**
+      nas duas versões. A v2 corrige a geração, não a avaliação; se o acerto
+      dela sair pior que o da v1, é resultado, não bug.
+    - O card do painel continua usando a velocidade instantânea
+      (`calcularVelocidade`) — ela não mudou.
   - Quando o prazo vence (`alvo_em` + tolerância — 20% do horizonte
     estimado, entre 1h e 12h), `avaliarEstimativasCota` confere se alguma
     leitura real da estação estava do outro lado do `alvo_nivel` dentro da
@@ -542,12 +562,11 @@ funciona depois de deployado no Vercel (localmente ou noutro host, o
   - O veredito em si é `avaliarEstimativa` em `lib/calculo.js` — pura, sem
     I/O, coberta por `tests/calculo.test.js`. `avaliarEstimativasCota` em
     `lib/coletar.js` só busca as leituras e grava o resultado.
-  - `/api/acerto` agrupa por antecedência (até 6h / 6–24h / mais de 24h) —
-    a expectativa razoável é a taxa cair conforme o horizonte cresce, já
-    que a extrapolação usa só as duas últimas leituras (bem sensível a
-    ruído, como documentado em `calcularEtaCota`); um resultado "ruim" pras
-    janelas longas não é bug, é o preço honesto de uma extrapolação simples
-    tentando prever longe.
+  - `/api/acerto` agrupa por versão do estimador e, dentro dela, por
+    antecedência (até 6h / 6–24h / mais de 24h; na v2 a última faixa vai só
+    até 48h, pelo teto) — a expectativa razoável é a taxa cair conforme o
+    horizonte cresce; um resultado "ruim" pras janelas longas não é bug, é o
+    preço honesto de uma extrapolação linear tentando prever longe.
 
 ### Projeção de nível por horizonte fixo
 
@@ -637,6 +656,21 @@ passam a valer a pena. Tabela `projecoes_nivel`, `registrarProjecoesNivel`/
   diferença entre os dias, não entre os métodos. Num teste com dados
   sintéticos a diferença foi de `SS = 0,56` pareado contra `0,20` sem parear.
   `MSE(persistencia) = 0` devolve `SS` NULL, nunca divisão por zero.
+- **Estratificação por sentido da variação.** `gruposPorSentido` e
+  `skillScoresPorSentido` repetem os dois agregados abertos por
+  `subindo` / `descendo` / `estavel` / `indefinido`, derivados em SQL do
+  sinal de `velocidade_cm_h` (sem coluna nova, sem faixa morta: `> 0`,
+  `< 0`, `= 0`, NULL). Motivo: a relação cota-vazão é assimétrica entre
+  enchente e vazante (histerese — USGS SIR 2024-5129), então é esperado que a
+  extrapolação erre diferente em cada caso, e um SS único pode ser a média de
+  um ganho subindo com uma perda descendo. O pareamento continua por
+  `(slug, horizonte_h, alvo_em)` dentro de cada classe, e cada célula
+  devolve seu `n` / `nPareado` — células pequenas aparecem rápido com a
+  estratificação. Os agregados sem estratificação continuam iguais.
+  Atenção: a velocidade aqui é a **instantânea** (a mesma da `tendencia`),
+  então a classe diz pra onde a telemetria apontava na emissão, não o regime
+  hidrológico — com ruído, parte das projeções de rio parado cai em
+  subindo/descendo.
 - **Como ler o NSE da persistência:** em série de nível de rio a
   autocorrelação é altíssima, então a persistência costuma dar NSE alto mesmo
   em horizonte longo. Isso é uma crítica conhecida da métrica, não um mérito
@@ -1260,9 +1294,32 @@ teste. Cobre as funções puras de `lib/calculo.js` (classificar, cm/h,
 frescor, projeção de nível, as métricas de erro dela e o skill score),
 `lib/feed.js` (parse do feed) — inclusive o caso do bug real que
 já encontramos (nível sem casa decimal, tipo "1 metros") — e `lib/push.js`
-(payload da notificação, detecção de inscrição expirada). Não testa rotas
-HTTP nem acesso ao banco — essas dependem de `DATABASE_URL` e são
-verificadas manualmente (`npm run coletar`, `curl` nos endpoints). Por isso
+(payload da notificação, detecção de inscrição expirada) e as regras de
+geração das estimativas de cota (`tests/estimativas.test.js`).
+
+`tests/integracao.test.js` cobre o que só o SQL decide — a trava horária de
+`estimativas_cota`, o agrupamento por versão de `/api/acerto` e o skill
+score estratificado de `/api/projecoes` — contra um Postgres de verdade. Fica
+**pulado** sem `TEST_DATABASE_URL`. Como o driver da Neon fala HTTP, um
+Postgres local precisa do proxy HTTP da Neon na frente:
+
+```bash
+docker network create neonlocal
+docker run -d --name pgtest --network neonlocal -e POSTGRES_PASSWORD=postgres postgres:16-alpine
+docker run -d --name neonproxy --network neonlocal -p 4444:4444 \
+  -e PG_CONNECTION_STRING=postgres://postgres:postgres@pgtest:5432/postgres \
+  ghcr.io/timowilhelm/local-neon-http-proxy:main
+docker exec -i pgtest psql -U postgres < schema.sql
+
+TEST_DATABASE_URL=postgres://postgres:postgres@db.localtest.me:5432/postgres \
+TEST_NEON_FETCH_ENDPOINT=http://localhost:4444/sql \
+  node --test tests/integracao.test.js
+```
+
+Use sempre um banco descartável: o teste só cria e apaga estações
+`zz-teste-*`, mas se recusa a rodar se encontrar leituras, estimativas ou
+projeções de qualquer outra estação. Fora isso, rotas HTTP e acesso ao banco
+são verificados manualmente (`npm run coletar`, `curl` nos endpoints). Por isso
 `lib/push.js` importa `./db.js` de forma tardia (dentro da função, não no
 topo do arquivo) — um import no topo quebraria a suite, já que `db.js`
 lança erro se `DATABASE_URL` não estiver definida.

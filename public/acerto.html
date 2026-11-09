@@ -32,13 +32,21 @@
     mesmo na cota — ou abaixo de 60% dela, no caso da volta ao normal.</b> Chegar cedo
     demais e já ter ido embora conta como erro, igual a não ter chegado: nos dois casos a
     estimativa não teria ajudado quem confiasse nela na hora H. Não é probabilidade nem
-    confiança — é uma extrapolação simples da tendência das duas últimas leituras, medida
-    contra o que realmente aconteceu depois. Só existe pra essa estimativa (não pra vazão
-    prevista): é a única onde temos uma medição real nossa pra comparar. Ver rodapé.
+    confiança — é uma extrapolação linear simples da tendência, medida contra o que
+    realmente aconteceu depois. Só existe pra essa estimativa (não pra vazão prevista): é
+    a única onde temos uma medição real nossa pra comparar. Ver rodapé.
   </p>
 
-  <h2>Por antecedência</h2>
-  <div class="faixas" id="faixas">
+  <p class="aviso">
+    <b>Duas versões do estimador, mostradas separadas e nunca somadas.</b>
+    <b>v1</b> (ingênua): velocidade entre as duas últimas leituras (~15 min), sem limite de
+    horizonte, uma estimativa em aberto por estação. <b>v2</b>: velocidade sustentada de 3h
+    (sem dados suficientes na janela, não estima), só até 48h à frente, no máximo uma por
+    hora e por tipo. O critério de acerto é o mesmo nas duas.
+  </p>
+
+  <h2>Por versão e antecedência</h2>
+  <div id="faixas">
     <p class="vazio">Carregando…</p>
   </div>
 
@@ -48,6 +56,7 @@
       <thead>
         <tr>
           <th>Estação</th>
+          <th>Versão</th>
           <th>Tipo</th>
           <th>Horizonte</th>
           <th>Alvo</th>
@@ -56,7 +65,7 @@
         </tr>
       </thead>
       <tbody id="corpoRecentes">
-        <tr><td colspan="6" class="vazio">Carregando…</td></tr>
+        <tr><td colspan="7" class="vazio">Carregando…</td></tr>
       </tbody>
     </table>
   </div>

@@ -23,3 +23,7 @@ td.acertou { color: #3b6d11; }
 td.errou { color: #a32d2d; }
 .tabela-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--linha); border-radius: 10px; }
 .vazio { text-align: center; color: var(--txt3); font-size: 13px; padding: 30px 0; }
+
+/* Um bloco por versão do estimador (v1, v2…), cada um com suas faixas. */
+.versao + .versao { margin-top: 18px; }
+.versao h3 { font-size: 13px; font-weight: 600; color: var(--txt); margin: 0 0 8px; }

@@ -113,10 +113,14 @@ CREATE INDEX IF NOT EXISTS idx_previsoes_slug_dia
 -- comparar), aqui a estimativa é extrapolação da nossa própria telemetria
 -- de nível, então dá pra avaliar com integridade.
 --
--- Só uma estimativa "em aberto" por estação por vez (ver lib/coletar.js):
--- enquanto a última ainda não foi avaliada, não cria outra — senão toda
--- subida de 6h+ geraria uma linha nova a cada 15 min, quase todas
--- redundantes entre si.
+-- Cadência: no máximo UMA estimativa por (slug, classe) por hora (v2 do
+-- estimador — ver estimador_versao abaixo e registrarEstimativasCota em
+-- lib/coletar.js). Várias em aberto pra mesma estação são normais.
+--
+-- A v1 travava a estação INTEIRA enquanto houvesse uma em aberto. Sem teto
+-- de horizonte, uma estimativa de 20 dias bloqueava a estação por 20 dias,
+-- e a amostra acabou dominada por horizontes longos — não porque os rios
+-- produzam mais deles, mas porque cada um deles calava os curtos.
 CREATE TABLE IF NOT EXISTS estimativas_cota (
     id                  BIGSERIAL PRIMARY KEY,
     slug                TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
@@ -134,8 +138,30 @@ CREATE TABLE IF NOT EXISTS estimativas_cota (
     erro_horas          NUMERIC(8,2)                 -- diferença real vs. previsto, só quando 'acertou'
 );
 
+-- Versão do ESTIMADOR que gerou a linha (não do critério de avaliação, que
+-- é o mesmo pras duas — avaliarEstimativa em lib/calculo.js):
+--   1 = ingênuo: velocidade instantânea das duas últimas leituras,
+--       horizonte ilimitado, uma em aberto por estação.
+--   2 = velocidade sustentada de 3h (sem cobertura, não emite), teto de
+--       48h de horizonte, uma por (slug, classe) por hora.
+-- DEFAULT 1 e NOT NULL: as linhas que já existiam ficam marcadas como v1
+-- sem UPDATE nenhum, e um coletor com código antigo ainda rodando (ex.:
+-- GitHub Actions atrás do deploy) continua gravando 1 — nunca se mistura
+-- com a v2 por engano. A v1 NÃO é apagada nem migrada: é a linha de base
+-- ingênua documentada do trabalho, analisada separadamente da v2.
+ALTER TABLE estimativas_cota ADD COLUMN IF NOT EXISTS estimador_versao SMALLINT NOT NULL DEFAULT 1;
+
 CREATE INDEX IF NOT EXISTS idx_estimativas_cota_pendentes
     ON estimativas_cota (slug) WHERE avaliado_em IS NULL;
+
+-- Trava horária da v2, mesma técnica de projecoes_nivel_unicas_hora
+-- (date_trunc sobre AT TIME ZONE 'UTC' porque índice exige expressão
+-- IMMUTABLE). PARCIAL, só pra v2 em diante: a v1 nunca teve essa cadência,
+-- e restringir o índice a ela dispensa o DO block de projecoes_nivel — não
+-- há histórico que possa violar a unicidade, então o CREATE nunca falha.
+CREATE UNIQUE INDEX IF NOT EXISTS estimativas_cota_unicas_hora
+    ON estimativas_cota (slug, classe, (date_trunc('hour', previsto_em AT TIME ZONE 'UTC')))
+    WHERE estimador_versao >= 2;
 CREATE INDEX IF NOT EXISTS idx_estimativas_cota_avaliadas
     ON estimativas_cota (avaliado_em) WHERE avaliado_em IS NOT NULL;
 
@@ -167,8 +193,8 @@ CREATE INDEX IF NOT EXISTS idx_estimativas_cota_avaliadas
 -- reportar o n bruto delas inflaria artificialmente a amostra na análise
 -- estatística (quatro linhas quase iguais contadas como quatro observações
 -- independentes). De quebra, o volume cai de ~10,7 mil pra ~2,7 mil
--- linhas/dia. Não é a trava de "uma em aberto por vez" da estimativas_cota:
--- aqui não se espera a anterior ser avaliada, cada hora emite a sua.
+-- linhas/dia. Aqui não se espera a anterior ser avaliada, cada hora emite a
+-- sua — o mesmo modelo que a v2 de estimativas_cota passou a seguir.
 CREATE TABLE IF NOT EXISTS projecoes_nivel (
     id               BIGSERIAL PRIMARY KEY,
     slug             TEXT NOT NULL REFERENCES estacoes(slug) ON DELETE CASCADE,
