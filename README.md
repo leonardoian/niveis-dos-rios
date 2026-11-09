@@ -284,7 +284,7 @@ hospedado no Vercel) lê do mesmo banco e não precisa saber de onde veio o dado
 | `GET /api/historico?slug=lajeado&horas=48` | série temporal de uma estação (inclui `chuvaAna`, chuva medida ANA na mesma janela) |
 | `GET /api/alertas`                      | últimos 30 alertas — nível (`tipo='nivel'`) e chuva acumulada (`tipo='chuva'`) misturados por data |
 | `GET /api/acerto`                       | acerto da estimativa de cota, por versão do estimador × antecedência |
-| `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha, projeções gravadas |
+| `GET /api/saude`                        | saúde da coleta em 24h/7d: uptime por fonte, maior lacuna, última falha, motivo da falha da ANA, projeções gravadas |
 | `GET /api/divergencia?dias=30`          | diferença entre nivelguaiba e ANA por estação (mediana, oscilação, deriva) |
 | `GET /api/curva?dias=90`                | erro da previsão de nível contra o nível medido, por estação |
 | `GET /api/projecoes`                    | erro das projeções de nível por método × horizonte (n, MAE, RMSE, viés, NSE) + skill score pareado contra a persistência, também estratificados por sentido da variação |
@@ -1093,6 +1093,31 @@ permanente ali seria invisível: a coleta seguiria verde com a tabela vazia.
 Como as projeções são horárias e a coleta é a cada 15 min, `0` numa rodada
 isolada é rotina; o que importa é a soma da janela (~2,7 mil em 24h).
 
+E traz o **motivo** quando a ANA falha (coluna `erro_ana` de `coletas`):
+`ultimaColeta.erroAna` (o "agora"), `ultimaFalhaAna` e, em cada janela,
+`ana.motivos` — os motivos mais frequentes, agrupados pelo texto, com
+quantas vezes cada um apareceu. A página `/fontes` mostra o motivo ao lado
+da última falha do feed. Exemplos do que aparece:
+
+- `autenticação: HTTP 401 — Usuário sem permissão de acesso ao módulo. Verifique!`
+  — a ANA recusou a credencial (a mensagem é a da própria ANA);
+- `autenticação: HTTP 503 — Application is not available …` ou
+  `… sem resposta em 15s` — a ANA está fora do ar ou travada;
+- `lote 2 de 2: …` — falha parcial: um lote de estações caiu, o outro não;
+- `nenhuma das N leituras recebidas foi aproveitada (cota inválida: N;
+  campos do 1º item: …)` — a ANA mudou o formato da resposta.
+
+Antes disso, as quatro situações davam o mesmo `ana_ok = false`, sem
+detalhe nenhum — e assim a ANA ficou **de 03/09 a 09/11/2026 sem entregar
+leitura** sem que desse pra dizer por quê. Ajudou a esconder o problema que,
+no mesmo período, `coletas` não recebia linha nenhuma: o deploy que
+acrescentou `projecoes_gravadas` ao INSERT subiu antes do `schema.sql`, e
+toda rodada falhava ao se registrar. Por isso `erro_ana` é gravado num
+`UPDATE` separado, e as consultas dele no `/api/saude` têm tratamento
+próprio: com o schema atrasado, perde-se só o motivo, não a linha da rodada
+nem a rota inteira. O motivo nunca contém credencial nem token — só status
+HTTP, a mensagem que a ANA devolve e **nomes** de campo.
+
 **2. As duas fontes de nível concordam?** (`GET /api/divergencia`) — essa é a
 razão de `leituras_ana` existir. O schema sempre disse que a tabela servia
 "pra comparar as duas fontes ao longo do tempo antes de considerar qualquer
@@ -1294,12 +1319,17 @@ teste. Cobre as funções puras de `lib/calculo.js` (classificar, cm/h,
 frescor, projeção de nível, as métricas de erro dela e o skill score),
 `lib/feed.js` (parse do feed) — inclusive o caso do bug real que
 já encontramos (nível sem casa decimal, tipo "1 metros") — e `lib/push.js`
-(payload da notificação, detecção de inscrição expirada) e as regras de
-geração das estimativas de cota (`tests/estimativas.test.js`).
+(payload da notificação, detecção de inscrição expirada), as regras de
+geração das estimativas de cota (`tests/estimativas.test.js`) e o
+diagnóstico de falha da ANA (`tests/ana.test.js`, com um `fetch` falso que
+reproduz as respostas reais de erro: 401 da ANA, 503 do OpenShift, 504 do
+HAProxy, timeout, falha parcial, formato alterado).
 
 `tests/integracao.test.js` cobre o que só o SQL decide — a trava horária de
 `estimativas_cota`, o agrupamento por versão de `/api/acerto` e o skill
-score estratificado de `/api/projecoes` — contra um Postgres de verdade. Fica
+score estratificado de `/api/projecoes` e o registro de `erro_ana` em
+`coletas` (inclusive com a coluna ainda não criada no banco) — contra um
+Postgres de verdade. Fica
 **pulado** sem `TEST_DATABASE_URL`. Como o driver da Neon fala HTTP, um
 Postgres local precisa do proxy HTTP da Neon na frente:
 
@@ -1317,8 +1347,8 @@ TEST_NEON_FETCH_ENDPOINT=http://localhost:4444/sql \
 ```
 
 Use sempre um banco descartável: o teste só cria e apaga estações
-`zz-teste-*`, mas se recusa a rodar se encontrar leituras, estimativas ou
-projeções de qualquer outra estação. Fora isso, rotas HTTP e acesso ao banco
+`zz-teste-*` (e linhas de `coletas` marcadas por ele), mas se recusa a rodar
+se encontrar leituras, estimativas, projeções ou coletas que não sejam dele. Fora isso, rotas HTTP e acesso ao banco
 são verificados manualmente (`npm run coletar`, `curl` nos endpoints). Por isso
 `lib/push.js` importa `./db.js` de forma tardia (dentro da função, não no
 topo do arquivo) — um import no topo quebraria a suite, já que `db.js`

@@ -28,8 +28,15 @@ let sql;
 let registrarEstimativasCota;
 let handlerAcerto;
 let handlerProjecoes;
+let handlerSaude;
+let registrarColeta;
 
 const PREFIXO = 'zz-teste-';
+
+// `coletas` não tem slug: as linhas criadas pelos testes são marcadas com
+// esta duração impossível, pra poderem ser apagadas (e as alheias,
+// detectadas) sem tocar em nada que o teste não criou.
+const MARCA_COLETA = -424242;
 
 // res mínimo no formato que as rotas do Vercel usam.
 function respostaFalsa() {
@@ -44,6 +51,7 @@ function respostaFalsa() {
 
 async function limpar() {
   await sql`DELETE FROM estacoes WHERE slug LIKE ${PREFIXO + '%'}`;
+  await sql`DELETE FROM coletas WHERE duracao_ms = ${MARCA_COLETA}`;
 }
 
 async function criarEstacao(slug, cota) {
@@ -89,18 +97,20 @@ before(async () => {
   // e vêm depois disto.
   process.env.DATABASE_URL = URL_TESTE;
   ({ sql } = await import('../lib/db.js'));
-  ({ registrarEstimativasCota } = await import('../lib/coletar.js'));
+  ({ registrarEstimativasCota, registrarColeta } = await import('../lib/coletar.js'));
   ({ default: handlerAcerto } = await import('../api/acerto.js'));
   ({ default: handlerProjecoes } = await import('../api/projecoes.js'));
+  ({ default: handlerSaude } = await import('../api/saude.js'));
 
   const [{ alheias }] = await sql`
     SELECT
       (SELECT COUNT(*) FROM leituras         WHERE slug NOT LIKE ${PREFIXO + '%'})
     + (SELECT COUNT(*) FROM estimativas_cota WHERE slug NOT LIKE ${PREFIXO + '%'})
-    + (SELECT COUNT(*) FROM projecoes_nivel  WHERE slug NOT LIKE ${PREFIXO + '%'}) AS alheias
+    + (SELECT COUNT(*) FROM projecoes_nivel  WHERE slug NOT LIKE ${PREFIXO + '%'})
+    + (SELECT COUNT(*) FROM coletas WHERE duracao_ms IS DISTINCT FROM ${MARCA_COLETA}) AS alheias
   `;
   if (Number(alheias) > 0) {
-    throw new Error('O banco de teste tem leituras/estimativas/projeções reais — use um banco vazio e descartável.');
+    throw new Error('O banco de teste tem leituras/estimativas/projeções/coletas reais — use um banco vazio e descartável.');
   }
   await limpar();
 });
@@ -317,4 +327,72 @@ test('/api/projecoes: skill score estratificado por sentido bate com o cálculo 
   assert.equal(gT.n, amostra.length + 1);
   assert.equal(gTs.reduce((s, g) => s + g.n, 0), gT.n);
   assert.equal(gTs.find((g) => g.sentido === 'subindo').n, 4); // 3 + a órfã (v = 3)
+});
+
+// ---------------------------------------------------------------------
+// coletas.erro_ana e /api/saude
+// ---------------------------------------------------------------------
+
+const ERRO_401 = 'autenticação: HTTP 401 — Usuário sem permissão de acesso ao módulo. Verifique!';
+const ERRO_503 = 'autenticação: HTTP 503 — Application is not available';
+
+// Uma rodada mínima no formato que coletar() devolve.
+const rodada = (extra) => ({ erroFeed: null, recebidas: 0, inseridas: 0, ...extra });
+
+test('coletas.erro_ana: grava o motivo e /api/saude agrupa por motivo', { skip: pular }, async () => {
+  await registrarColeta(rodada({ anaOk: false, erroAna: ERRO_401 }), MARCA_COLETA);
+  await registrarColeta(rodada({ anaOk: false, erroAna: ERRO_401 }), MARCA_COLETA);
+  await registrarColeta(rodada({ anaOk: false, erroAna: ERRO_503 }), MARCA_COLETA);
+  await registrarColeta(rodada({ anaOk: true, erroAna: null }), MARCA_COLETA); // a ANA voltou
+
+  const linhas = await sql`
+    SELECT ana_ok, erro_ana FROM coletas WHERE duracao_ms = ${MARCA_COLETA} ORDER BY iniciada_em
+  `;
+  assert.deepEqual(linhas.map((l) => l.erro_ana), [ERRO_401, ERRO_401, ERRO_503, null]);
+
+  const res = respostaFalsa();
+  await handlerSaude({}, res);
+  assert.equal(res.statusCode, 200);
+  const d = res.body;
+
+  // A última rodada deu certo: nada no "agora", mas a última falha fica.
+  assert.equal(d.ultimaColeta.anaOk, true);
+  assert.equal(d.ultimaColeta.erroAna, null);
+  assert.equal(d.ultimaFalhaAna.erro, ERRO_503);
+
+  const ana = d.janelas['24h'].ana;
+  assert.equal(ana.ok, 1);
+  assert.equal(ana.falhas, 3);
+  assert.deepEqual(
+    ana.motivos.map((m) => [m.erro, m.vezes]),
+    [[ERRO_401, 2], [ERRO_503, 1]]
+  );
+  await sql`DELETE FROM coletas WHERE duracao_ms = ${MARCA_COLETA}`;
+});
+
+test('coletas.erro_ana: deploy ANTES do schema.sql não perde a linha da rodada', { skip: pular }, async (t) => {
+  // Reproduz o incidente de 26/08–09/11/2026: código novo no ar, coluna
+  // ainda não criada no banco. Antes, isso custava a linha inteira de
+  // `coletas` (e o /api/saude ficava cego); agora tem que custar só o
+  // campo novo. O banco é descartável (garantido no before), e a coluna
+  // volta no finally.
+  t.mock.method(console, 'error', () => {});
+  await sql`ALTER TABLE coletas DROP COLUMN erro_ana`;
+  try {
+    await registrarColeta(rodada({ anaOk: false, erroAna: ERRO_401 }), MARCA_COLETA);
+
+    const [{ n }] = await sql`SELECT COUNT(*)::int AS n FROM coletas WHERE duracao_ms = ${MARCA_COLETA}`;
+    assert.equal(n, 1, 'a linha da rodada foi gravada mesmo sem a coluna');
+
+    const res = respostaFalsa();
+    await handlerSaude({}, res);
+    assert.equal(res.statusCode, 200, '/api/saude não cai por causa da coluna de diagnóstico');
+    assert.equal(res.body.ultimaColeta.anaOk, false);
+    assert.equal(res.body.ultimaColeta.erroAna, null);
+    assert.equal(res.body.ultimaFalhaAna, null);
+    assert.equal(res.body.janelas['24h'].ana.motivos, null);
+  } finally {
+    await sql`ALTER TABLE coletas ADD COLUMN IF NOT EXISTS erro_ana TEXT`;
+    await sql`DELETE FROM coletas WHERE duracao_ms = ${MARCA_COLETA}`;
+  }
 });

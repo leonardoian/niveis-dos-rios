@@ -17,6 +17,20 @@ const JANELAS = [
 // que é o que vale a pena mostrar.
 const INTERVALO_ESPERADO_MIN = 15;
 
+// Consultas que dependem de coletas.erro_ana, isoladas e com catch próprio.
+// Já aconteceu de o código subir antes do schema.sql (ver registrarColeta
+// em lib/coletar.js), e uma coluna de DIAGNÓSTICO não pode derrubar a rota
+// inteira de saúde: sem a coluna, os campos novos vêm null e o resto da
+// resposta sai igual.
+async function opcional(consulta, nome) {
+  try {
+    return await consulta();
+  } catch (erro) {
+    console.error(`/api/saude: ${nome} indisponível (schema.sql aplicado?):`, erro.message);
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
   try {
     const janelas = {};
@@ -51,6 +65,21 @@ export default async function handler(req, res) {
         ) intervalos
       `;
 
+      // Os motivos mais frequentes de falha da ANA na janela, agrupados pelo
+      // texto exato. É o que responde "a ANA está fora do ar ou recusando a
+      // senha?": um único motivo repetido 96 vezes por dia é coisa bem
+      // diferente de quedas esparsas. Inclui rodadas com falha PARCIAL (um
+      // lote caiu, o outro não), que contam como ana.ok mas têm motivo.
+      const motivosAna = await opcional(() => sql`
+        SELECT erro_ana AS erro, COUNT(*)::int AS vezes, MAX(iniciada_em) AS ultima_vez
+        FROM coletas
+        WHERE erro_ana IS NOT NULL
+          AND iniciada_em >= NOW() - (${j.horas} * INTERVAL '1 hour')
+        GROUP BY erro_ana
+        ORDER BY vezes DESC, ultima_vez DESC
+        LIMIT 5
+      `, 'motivos de falha da ANA');
+
       const taxa = (parte, total) => (total === 0 ? null : Number((parte / total).toFixed(3)));
 
       janelas[j.chave] = {
@@ -66,6 +95,11 @@ export default async function handler(req, res) {
           ok: linha.ana_ok,
           falhas: linha.ana_avaliadas - linha.ana_ok,
           taxa: taxa(linha.ana_ok, linha.ana_avaliadas),
+          motivos: motivosAna === null ? null : motivosAna.map((m) => ({
+            erro: m.erro,
+            vezes: m.vezes,
+            ultimaVez: m.ultima_vez,
+          })),
         },
         leiturasInseridas: linha.leituras_inseridas,
         leiturasAnaInseridas: linha.leituras_ana_inseridas,
@@ -89,7 +123,7 @@ export default async function handler(req, res) {
     }
 
     const [ultima] = await sql`
-      SELECT iniciada_em, feed_ok, erro_feed, ana_ok, duracao_ms
+      SELECT id, iniciada_em, feed_ok, erro_feed, ana_ok, duracao_ms
       FROM coletas ORDER BY iniciada_em DESC LIMIT 1
     `;
 
@@ -107,6 +141,18 @@ export default async function handler(req, res) {
       FROM coletas WHERE erro_projecoes IS NOT NULL ORDER BY iniciada_em DESC LIMIT 1
     `;
 
+    // Motivo da falha da ANA: o da última rodada (o "agora") e o da última
+    // rodada que falhou (pra quando a ANA já voltou, mas se quer saber o
+    // que houve). Mesmo papel de ultimaFalhaFeed.
+    const erroAnaUltima = !ultima ? null : await opcional(
+      () => sql`SELECT erro_ana FROM coletas WHERE id = ${ultima.id}`,
+      'erro da ANA na última rodada'
+    );
+    const ultimaFalhaAna = await opcional(() => sql`
+      SELECT iniciada_em, erro_ana
+      FROM coletas WHERE erro_ana IS NOT NULL ORDER BY iniciada_em DESC LIMIT 1
+    `, 'última falha da ANA');
+
     res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=600');
     return res.status(200).json({
       intervaloEsperadoMin: INTERVALO_ESPERADO_MIN,
@@ -115,11 +161,16 @@ export default async function handler(req, res) {
         feedOk: ultima.feed_ok,
         erroFeed: ultima.erro_feed,
         anaOk: ultima.ana_ok,
+        erroAna: erroAnaUltima?.[0]?.erro_ana ?? null,
         duracaoMs: ultima.duracao_ms,
       },
       ultimaFalhaFeed: !ultimaFalha ? null : {
         iniciadaEm: ultimaFalha.iniciada_em,
         erro: ultimaFalha.erro_feed,
+      },
+      ultimaFalhaAna: !ultimaFalhaAna?.[0] ? null : {
+        iniciadaEm: ultimaFalhaAna[0].iniciada_em,
+        erro: ultimaFalhaAna[0].erro_ana,
       },
       ultimaFalhaProjecoes: !ultimaFalhaProjecoes ? null : {
         iniciadaEm: ultimaFalhaProjecoes.iniciada_em,

@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ESTACOES_ANA, codigosParaLotes, converterCotaParaMetros, converterChuvaMm, converterDataHoraAna, calcularChuvaAcumulada, deduplicarLeituras } from '../lib/ana.js';
+import {
+  ESTACOES_ANA, codigosParaLotes, converterCotaParaMetros, converterChuvaMm, converterDataHoraAna,
+  calcularChuvaAcumulada, deduplicarLeituras, resumirCorpoErro, descreverFalhaRede, converterItensAna, buscarNiveisAna,
+} from '../lib/ana.js';
 
 test('ESTACOES_ANA: tem exatamente 12 estações mapeadas', () => {
   assert.equal(Object.keys(ESTACOES_ANA).length, 12);
@@ -153,4 +156,205 @@ test('deduplicarLeituras: estações diferentes no mesmo instante não colidem',
 
 test('deduplicarLeituras: lista vazia continua vazia', () => {
   assert.deepEqual(deduplicarLeituras([]), []);
+});
+
+// ---------------------------------------------------------------------
+// DIAGNÓSTICO DE FALHA (coletas.erro_ana)
+//
+// buscarNiveisAna com fetch falso: cada teste simula um jeito real de a
+// ANA falhar e confere que o motivo sai legível — e que credencial e token
+// NUNCA aparecem nele, porque o motivo vai pro banco e pra uma rota pública.
+// ---------------------------------------------------------------------
+
+const CRED = { ANA_IDENTIFICADOR: 'ID-SECRETO-123', ANA_SENHA: 'SENHA-SECRETA-456' };
+const TOKEN = 'TOKEN-SECRETO-789';
+
+// Corpos de erro REAIS, copiados das respostas da ANA e da infraestrutura
+// dela durante a investigação de 09/11/2026.
+const CORPO_401_ANA = '{"status":"UNAUTHORIZED","code":401,"message":"Usuário sem permissão de acesso ao módulo. Verifique!","items":null}';
+const CORPO_503_OPENSHIFT = `<html><head><style type="text/css">body { font-family: "Helvetica Neue"; }</style></head>
+<body><div><h1>Application is not available</h1><p>The application is currently not serving requests at this endpoint.</p></div></body></html>`;
+const CORPO_504_HAPROXY = "<html><body><h1>504 Gateway Time-out</h1>\nThe server didn't respond in time.\n</body></html>";
+
+const json = (corpo, status = 200) =>
+  new Response(JSON.stringify(corpo), { status, headers: { 'content-type': 'application/json' } });
+const html = (corpo, status) => new Response(corpo, { status, headers: { 'content-type': 'text/html' } });
+
+const item = (codigo, extra = {}) => ({
+  codigoestacao: codigo,
+  Cota_Adotada: '171.00',
+  Data_Hora_Medicao: '2026-11-09 10:00:00.0',
+  Chuva_Adotada: '0.00',
+  ...extra,
+});
+
+const authOk = () => json({ items: { tokenautenticacao: TOKEN } });
+const loteOk = (codigos) => json({ items: codigos.map((c) => item(c)) });
+
+// Roteia pela URL: autenticação pra `auth`, consulta pra `lote` (que
+// recebe os códigos do lote). Registra as chamadas pra conferir headers.
+function fetchFalso({ auth = authOk, lote = loteOk } = {}) {
+  const chamadas = [];
+  const fn = async (url, opcoes = {}) => {
+    chamadas.push({ url, headers: opcoes.headers });
+    if (url.includes('/OAUth/v1')) return auth();
+    const codigos = new URL(url).searchParams.get('Codigos_Estacoes').split(',');
+    return lote(codigos);
+  };
+  fn.chamadas = chamadas;
+  return fn;
+}
+
+function semSegredos(erro) {
+  for (const segredo of [CRED.ANA_IDENTIFICADOR, CRED.ANA_SENHA, TOKEN]) {
+    assert.ok(!erro.includes(segredo), `o motivo não pode conter "${segredo}": ${erro}`);
+  }
+}
+
+// As falhas também vão pro console.error (log do Vercel) — silenciado aqui
+// só pra não poluir a saída dos testes.
+const silenciar = (t) => t.mock.method(console, 'error', () => {});
+
+test('resumirCorpoErro: JSON da ANA vira a "message" dela', () => {
+  assert.equal(resumirCorpoErro(CORPO_401_ANA), 'Usuário sem permissão de acesso ao módulo. Verifique!');
+});
+
+test('resumirCorpoErro: HTML do OpenShift e do HAProxy viram texto, sem CSS nem tags', () => {
+  assert.match(resumirCorpoErro(CORPO_503_OPENSHIFT), /^Application is not available The application/);
+  assert.ok(!resumirCorpoErro(CORPO_503_OPENSHIFT).includes('Helvetica'));
+  assert.equal(resumirCorpoErro(CORPO_504_HAPROXY), "504 Gateway Time-out The server didn't respond in time.");
+});
+
+test('resumirCorpoErro: vazio vira string vazia; texto longo é cortado', () => {
+  assert.equal(resumirCorpoErro(''), '');
+  assert.equal(resumirCorpoErro(null), '');
+  const longo = resumirCorpoErro('x'.repeat(1000));
+  assert.equal(longo.length, 121);
+  assert.ok(longo.endsWith('…'));
+});
+
+test('descreverFalhaRede: timeout tem mensagem própria; erro de rede leva o código', () => {
+  assert.equal(descreverFalhaRede(new DOMException('aborted', 'TimeoutError'), 15), 'sem resposta em 15s');
+  const rede = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
+  assert.equal(descreverFalhaRede(rede, 15), 'fetch failed (ECONNRESET)');
+});
+
+test('converterItensAna: converte e conta os descartes por motivo', () => {
+  const { leituras, descartes } = converterItensAna([
+    item('87450020'),
+    item('99999999'),                                 // estação fora do mapa
+    item('87382000', { Cota_Adotada: null }),          // sensor sem cota
+    item('86881000', { Data_Hora_Medicao: 1762689600000 }), // data como número
+  ]);
+  assert.equal(leituras.length, 1);
+  assert.equal(leituras[0].slug, 'portoalegre');
+  assert.equal(leituras[0].nivel, 1.71);
+  assert.deepEqual(descartes, { estacaoNaoMapeada: 1, cotaInvalida: 1, dataInvalida: 1 });
+});
+
+test('converterItensAna: código da estação como NÚMERO ainda é reconhecido', () => {
+  const { leituras } = converterItensAna([item(87450020)]);
+  assert.equal(leituras.length, 1);
+  assert.equal(leituras[0].slug, 'portoalegre');
+});
+
+test('buscarNiveisAna: sem credencial não chama a API e não conta como erro', async () => {
+  const fetch = fetchFalso();
+  const r = await buscarNiveisAna({ env: {}, fetch });
+  assert.deepEqual(r, { leituras: [], erro: null });
+  assert.equal(fetch.chamadas.length, 0);
+});
+
+test('buscarNiveisAna: tudo certo devolve as leituras e erro null', async () => {
+  const fetch = fetchFalso();
+  const r = await buscarNiveisAna({ env: CRED, fetch });
+  assert.equal(r.erro, null);
+  assert.equal(r.leituras.length, 12); // uma por estação mapeada
+  // 1 autenticação + 2 lotes (10 + 2 estações), com o token no Bearer.
+  assert.equal(fetch.chamadas.length, 3);
+  assert.equal(fetch.chamadas[1].headers.Authorization, `Bearer ${TOKEN}`);
+});
+
+test('buscarNiveisAna: senha recusada (401) traz a mensagem da própria ANA', async (t) => {
+  silenciar(t);
+  const fetch = fetchFalso({ auth: () => new Response(CORPO_401_ANA, { status: 401 }) });
+  const r = await buscarNiveisAna({ env: CRED, fetch });
+  assert.deepEqual(r.leituras, []);
+  assert.equal(r.erro, 'autenticação: HTTP 401 — Usuário sem permissão de acesso ao módulo. Verifique!');
+  assert.equal(fetch.chamadas.length, 1, 'sem token, não tenta consultar');
+  semSegredos(r.erro);
+});
+
+test('buscarNiveisAna: ANA fora do ar (503 do OpenShift) é distinguível de senha recusada', async (t) => {
+  silenciar(t);
+  const r = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ auth: () => html(CORPO_503_OPENSHIFT, 503) }) });
+  assert.match(r.erro, /^autenticação: HTTP 503 — Application is not available/);
+  semSegredos(r.erro);
+});
+
+test('buscarNiveisAna: servidor travado (timeout) vira "sem resposta em 15s"', async (t) => {
+  silenciar(t);
+  const auth = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); };
+  const r = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ auth }) });
+  assert.equal(r.erro, 'autenticação: sem resposta em 15s');
+});
+
+test('buscarNiveisAna: um lote cai (504) e o outro não — leituras parciais E motivo', async (t) => {
+  silenciar(t);
+  const lote = (codigos) => (codigos.length === 2 ? html(CORPO_504_HAPROXY, 504) : loteOk(codigos));
+  const r = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ lote }) });
+  assert.equal(r.leituras.length, 10);
+  assert.equal(r.erro, "lote 2 de 2: consulta: HTTP 504 — 504 Gateway Time-out The server didn't respond in time.");
+  semSegredos(r.erro);
+});
+
+test('buscarNiveisAna: formato da resposta mudou — diz quantas vieram, por que caíram e os campos', async (t) => {
+  silenciar(t);
+  // Cota_Adotada renomeado: todo item é descartado por "cota inválida".
+  const lote = (codigos) => json({
+    items: codigos.map((c) => ({ codigoestacao: c, CotaAdotada: 'VALOR-QUE-NAO-PODE-VAZAR', Data_Hora_Medicao: '2026-11-09 10:00:00.0' })),
+  });
+  const r = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ lote }) });
+  assert.deepEqual(r.leituras, []);
+  assert.equal(
+    r.erro,
+    'nenhuma das 12 leituras recebidas foi aproveitada (cota inválida: 12; campos do 1º item: codigoestacao, CotaAdotada, Data_Hora_Medicao)'
+  );
+  assert.ok(!r.erro.includes('VALOR-QUE-NAO-PODE-VAZAR'), 'só nomes de campo, nunca valores');
+});
+
+test('buscarNiveisAna: resposta vazia ou sem "items" não passa mais em silêncio', async (t) => {
+  silenciar(t);
+  const vazia = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ lote: () => json({ items: [] }) }) });
+  assert.equal(vazia.erro, 'a ANA respondeu, mas sem nenhuma leitura em 48h');
+
+  const semItems = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ lote: () => json({ items: null }) }) });
+  assert.equal(
+    semItems.erro,
+    'lote 1 de 2: consulta: resposta sem a lista "items" (items = null) | lote 2 de 2: consulta: resposta sem a lista "items" (items = null)'
+  );
+});
+
+test('buscarNiveisAna: autenticação sem token cita só os nomes dos campos', async (t) => {
+  silenciar(t);
+  const auth = () => json({ items: { outroCampo: 'VALOR-SECRETO' } });
+  const r = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ auth }) });
+  assert.equal(r.erro, 'autenticação: resposta sem token (campos em items: outroCampo)');
+  assert.ok(!r.erro.includes('VALOR-SECRETO'));
+});
+
+test('buscarNiveisAna: motivo enorme é limitado a 500 caracteres', async (t) => {
+  silenciar(t);
+  const auth = () => json({ message: 'm'.repeat(5000) }, 401);
+  const r = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ auth }) });
+  assert.equal(r.erro.length, 500);
+  assert.ok(r.erro.endsWith('…'));
+});
+
+test('buscarNiveisAna: consulta travada (timeout) em todos os lotes', async (t) => {
+  silenciar(t);
+  const lote = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); };
+  const r = await buscarNiveisAna({ env: CRED, fetch: fetchFalso({ lote }) });
+  assert.deepEqual(r.leituras, []);
+  assert.equal(r.erro, 'lote 1 de 2: consulta: sem resposta em 20s | lote 2 de 2: consulta: sem resposta em 20s');
 });

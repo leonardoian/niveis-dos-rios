@@ -109,6 +109,16 @@ function renderizarSaude(d) {
   } else {
     partes.push('Nenhuma falha do feed registrada.');
   }
+  // Motivo da falha da ANA. Sem isso o cartão só dizia "0%", e não havia
+  // como saber se era senha recusada ou a ANA fora do ar. O da última
+  // rodada tem prioridade (é o "agora"); se ela não falhou, mostra a última
+  // falha registrada. textContent (abaixo), não innerHTML: a mensagem vem
+  // da ANA e não pode ser interpretada como HTML.
+  if (d.ultimaColeta?.erroAna) {
+    partes.push(`ANA na última rodada: ${d.ultimaColeta.erroAna}`);
+  } else if (d.ultimaFalhaAna) {
+    partes.push(`Última falha da ANA: ${hora(d.ultimaFalhaAna.iniciadaEm)} — ${d.ultimaFalhaAna.erro}`);
+  }
   nota.textContent = partes.join(' · ');
   nota.hidden = false;
 }

@@ -404,6 +404,20 @@ CREATE TABLE IF NOT EXISTS coletas (
 ALTER TABLE coletas ADD COLUMN IF NOT EXISTS projecoes_gravadas INT NOT NULL DEFAULT 0;
 ALTER TABLE coletas ADD COLUMN IF NOT EXISTS erro_projecoes TEXT;
 
+-- erro_ana: o MOTIVO de a ANA ter falhado naquela rodada (NULL = não falhou,
+-- ou não está configurada). ana_ok sozinho não basta: senha recusada,
+-- servidor da ANA fora do ar e resposta em formato novo davam todos o mesmo
+-- ana_ok = false, e assim a ANA ficou de 03/09 a 09/11/2026 sem entregar
+-- nada sem que desse pra dizer por quê. Exemplos do que aparece aqui:
+--   "autenticação: HTTP 401 — Usuário sem permissão de acesso ao módulo. Verifique!"
+--   "autenticação: HTTP 503 — Application is not available …"
+--   "lote 2 de 2: consulta: sem resposta em 20s"
+--   "nenhuma das 1920 leituras recebidas foi aproveitada (…; campos do 1º item: …)"
+-- Nunca contém credencial nem token (ver lib/ana.js). Gravado num UPDATE
+-- separado do INSERT da rodada (ver registrarColeta em lib/coletar.js), pra
+-- que um deploy antes deste ALTER custe só esta coluna, não a linha inteira.
+ALTER TABLE coletas ADD COLUMN IF NOT EXISTS erro_ana TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_coletas_data ON coletas (iniciada_em DESC);
 
 -- ============================================================
